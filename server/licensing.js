@@ -58,7 +58,7 @@ function createLicensing(store, ghl, sec) {
   // OAuth callback: create or re-activate the agency.
   async function installFromOAuth(code) {
     const t = await ghl.exchangeCode(code);
-    let inst = store.get(t.companyId);
+    let inst = await store.get(t.companyId);
     const isNew = !inst;
     if (!inst) inst = blank(t.companyId);
     storeTokens(inst, t);
@@ -72,14 +72,14 @@ function createLicensing(store, ghl, sec) {
     } catch (e) { /* scope missing or API down: name stays empty */ }
     let publishKey = null;
     if (!inst.publishKeyHash) { publishKey = newPublishKey(); inst.publishKeyHash = sha256(publishKey); }
-    store.put(inst);
-    store.log(inst.companyId, isNew ? 'install' : 'reauthorize', 'via OAuth');
+    await store.put(inst);
+    await store.log(inst.companyId, isNew ? 'install' : 'reauthorize', 'via OAuth');
     return { inst, publishKey };
   }
 
-  function addManual(companyId, name) {
+  async function addManual(companyId, name) {
     if (!COMPANY_RE.test(companyId)) throw new Error('Invalid company ID');
-    let inst = store.get(companyId);
+    let inst = await store.get(companyId);
     let publishKey = null;
     if (!inst) {
       inst = blank(companyId);
@@ -89,8 +89,8 @@ function createLicensing(store, ghl, sec) {
     }
     inst.installed = true;
     if (name) inst.name = String(name).slice(0, 120);
-    store.put(inst);
-    store.log(companyId, 'manual_add', name || '');
+    await store.put(inst);
+    await store.log(companyId, 'manual_add', name || '');
     return { inst, publishKey };
   }
 
@@ -101,14 +101,14 @@ function createLicensing(store, ghl, sec) {
     if (!tokens || !tokens.refresh) {
       inst.lastVerifiedAt = new Date().toISOString();
       inst.lastVerifyResult = inst.source === 'manual' ? 'manual license (no token)' : 'no token stored';
-      store.put(inst);
+      await store.put(inst);
       return inst.lastVerifyResult;
     }
     let result;
     try {
       const t = await ghl.refresh(tokens.refresh);
       storeTokens(inst, t);
-      if (!inst.installed) store.log(inst.companyId, 'reinstated', 'token valid again');
+      if (!inst.installed) await store.log(inst.companyId, 'reinstated', 'token valid again');
       inst.installed = true;
       result = 'ok';
     } catch (e) {
@@ -116,7 +116,7 @@ function createLicensing(store, ghl, sec) {
       const revoked = e.status === 401 || e.status === 403 ||
         (e.status === 400 && /invalid_grant|unauthorized|revoked/i.test(String(body.error || '') + String(body.error_description || '') + String(body.message || '')));
       if (revoked) {
-        markUninstalled(inst, 'token revoked');
+        await markUninstalled(inst, 'token revoked');
         result = 'revoked: uninstalled';
       } else {
         result = 'error: ' + e.message;
@@ -124,38 +124,38 @@ function createLicensing(store, ghl, sec) {
     }
     inst.lastVerifiedAt = new Date().toISOString();
     inst.lastVerifyResult = result;
-    store.put(inst);
+    await store.put(inst);
     return result;
   }
 
-  function markUninstalled(inst, why) {
+  async function markUninstalled(inst, why) {
     if (!inst.installed) return;
     inst.installed = false;
     inst.uninstalledAt = new Date().toISOString();
-    store.put(inst);
-    store.log(inst.companyId, 'uninstall', why || '');
+    await store.put(inst);
+    await store.log(inst.companyId, 'uninstall', why || '');
   }
 
-  function rotatePublishKey(inst) {
+  async function rotatePublishKey(inst) {
     const key = newPublishKey();
     inst.publishKeyHash = sha256(key);
-    store.put(inst);
-    store.log(inst.companyId, 'publish_key_rotated');
+    await store.put(inst);
+    await store.log(inst.companyId, 'publish_key_rotated');
     return key;
   }
-  function rotateAssetKey(inst) {
+  async function rotateAssetKey(inst) {
     inst.key = newAssetKey();
-    store.put(inst);
-    store.log(inst.companyId, 'asset_key_rotated');
+    await store.put(inst);
+    await store.log(inst.companyId, 'asset_key_rotated');
     return inst.key;
   }
   const checkPublishKey = (inst, key) => !!(inst && inst.publishKeyHash && typeof key === 'string' && safeEqual(sha256(key), inst.publishKeyHash));
 
-  function saveConfig(inst, cfg, who) {
+  async function saveConfig(inst, cfg, who) {
     inst.config = engine.sanitize(cfg);
     inst.configVersion = (inst.configVersion || 1) + 1;
-    store.put(inst);
-    store.log(inst.companyId, 'config_saved', who || '');
+    await store.put(inst);
+    await store.log(inst.companyId, 'config_saved', who || '');
     return inst.config;
   }
 
@@ -171,7 +171,7 @@ function createLicensing(store, ghl, sec) {
   }
 
   // Record where the assets are used (visible in the admin panel).
-  function noteHost(inst, host) {
+  async function noteHost(inst, host) {
     if (!host || !/^[a-z0-9.-]{3,253}$/.test(host)) return;
     const now = new Date().toISOString();
     const prev = inst.seenHosts[host];
@@ -182,7 +182,7 @@ function createLicensing(store, ghl, sec) {
       hosts.sort((a, b) => inst.seenHosts[a].localeCompare(inst.seenHosts[b]));
       delete inst.seenHosts[hosts[0]];
     }
-    store.put(inst);
+    await store.put(inst);
   }
 
   return {

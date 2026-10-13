@@ -16,18 +16,12 @@ const server = app.listen(cfg.port, () => {
   console.log('Webhook URL: ' + cfg.baseUrl + '/webhooks/ghl');
 });
 
-// Daily: confirm every installed agency still has the app (catches missed UNINSTALL webhooks).
-const DAY = 24 * 3600e3;
-setInterval(async () => {
-  const { store, lic } = app.locals;
-  for (const inst of store.list()) {
-    if (inst.installed && inst.tokens) { try { await lic.verify(inst); } catch (e) { /* logged on the record */ } }
-  }
-}, DAY).unref();
+// Daily (long-running servers only; on Vercel the cron in vercel.json does this):
+// confirm installed agencies still have the app, catching missed UNINSTALL webhooks.
+setInterval(() => { app.locals.verifyBatch(500).catch((e) => console.error('verify sweep failed', e)); }, 24 * 3600e3).unref();
 
 function shutdown() {
-  app.locals.store.flushNow();
-  server.close(() => process.exit(0));
+  server.close(() => Promise.resolve(app.locals.store.close()).finally(() => process.exit(0)));
   setTimeout(() => process.exit(0), 3000).unref();
 }
 process.on('SIGTERM', shutdown);

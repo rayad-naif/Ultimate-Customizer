@@ -1,12 +1,14 @@
 'use strict';
-/* JSON-file store with atomic writes. Plenty for hundreds of agencies;
-   swap this module for a real database later without touching routes. */
+/* JSON-file store for local development and tests.
+   Same async interface as the MongoDB store. Not for serverless hosts
+   (their filesystem is temporary). */
 const fs = require('fs');
 const path = require('path');
 
 const MAX_EVENTS = 1000;
+const copy = (o) => (o ? JSON.parse(JSON.stringify(o)) : null);
 
-function createStore(dataDir) {
+function createFileStore(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
   const file = path.join(dataDir, 'db.json');
   let db = { installs: {}, events: [] };
@@ -28,24 +30,25 @@ function createStore(dataDir) {
   const all = () => Object.values(db.installs);
 
   return {
-    get: (companyId) => db.installs[companyId] || null,
-    byKey: (key) => all().find((i) => i.key === key) || null,
-    list: () => all().sort((a, b) => String(b.installedAt).localeCompare(String(a.installedAt))),
-    put(inst) {
+    kind: 'file',
+    async get(companyId) { return copy(db.installs[companyId]); },
+    async byKey(key) { return copy(all().find((i) => i.key === key)); },
+    async list() { return copy(all()).sort((a, b) => String(b.installedAt).localeCompare(String(a.installedAt))); },
+    async put(inst) {
       inst.updatedAt = new Date().toISOString();
-      db.installs[inst.companyId] = inst;
+      db.installs[inst.companyId] = copy(inst);
       save();
       return inst;
     },
-    remove(companyId) { delete db.installs[companyId]; save(); },
-    log(companyId, type, detail) {
+    async remove(companyId) { delete db.installs[companyId]; save(); },
+    async log(companyId, type, detail) {
       db.events.unshift({ at: new Date().toISOString(), companyId: companyId || null, type, detail: detail || '' });
       if (db.events.length > MAX_EVENTS) db.events.length = MAX_EVENTS;
       save();
     },
-    events: (companyId, limit) => db.events.filter((e) => !companyId || e.companyId === companyId).slice(0, limit || 50),
-    flushNow() { if (timer) { clearTimeout(timer); flush(); } }
+    async events(companyId, limit) { return db.events.filter((e) => !companyId || e.companyId === companyId).slice(0, limit || 50); },
+    async close() { if (timer) { clearTimeout(timer); flush(); } }
   };
 }
 
-module.exports = { createStore };
+module.exports = { createFileStore };

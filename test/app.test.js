@@ -40,6 +40,8 @@ async function boot() {
   const gh = fakeGhl();
   const cfg = {
     port: 0, baseUrl: 'http://127.0.0.1', secureCookies: false, dataDir,
+    // Set TEST_MONGODB_URI to run the same tests against MongoDB.
+    mongoUri: process.env.TEST_MONGODB_URI || '', mongoDb: 'uc_test_' + Date.now() + '_' + Math.floor(Math.random() * 1e6),
     adminPassword: 'admin-password-123', sessionSecret: 'x'.repeat(40),
     ghl: { clientId: 'cid', clientSecret: 'sec', scopes: 'companies.readonly', authUrl: 'https://marketplace.example/oauth/chooselocation', apiBase: 'https://api.example', apiVersion: '2021-07-28', webhookEd25519Key: '', webhookRsaKey: '' },
     redirectUri: 'http://127.0.0.1/oauth/callback'
@@ -47,7 +49,18 @@ async function boot() {
   const app = createApp(cfg, { fetch: gh.fetch });
   const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
   const url = 'http://127.0.0.1:' + server.address().port;
-  return { app, server, url, gh, close: () => new Promise((r) => server.close(r)) };
+  const close = async () => {
+    await new Promise((r) => server.close(r));
+    const store = app.locals.store;
+    if (store.kind === 'mongo') {
+      const { MongoClient } = require('mongodb');
+      const c = await MongoClient.connect(cfg.mongoUri);
+      await c.db(cfg.mongoDb).dropDatabase();
+      await c.close();
+    }
+    await store.close();
+  };
+  return { app, server, url, gh, close };
 }
 
 const cookiesOf = (res) => (res.headers.getSetCookie ? res.headers.getSetCookie() : []).map((c) => c.split(';')[0]).filter((c) => !c.endsWith('=')).join('; ');

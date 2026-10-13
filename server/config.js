@@ -18,12 +18,18 @@ const path = require('path');
 const env = process.env;
 
 function load() {
-  const baseUrl = (env.BASE_URL || 'http://localhost:' + (env.PORT || 3000)).replace(/\/+$/, '');
+  // On Vercel, fall back to the production domain if BASE_URL is not set.
+  const vercelUrl = env.VERCEL_PROJECT_PRODUCTION_URL ? 'https://' + env.VERCEL_PROJECT_PRODUCTION_URL : '';
+  const baseUrl = (env.BASE_URL || vercelUrl || 'http://localhost:' + (env.PORT || 3000)).replace(/\/+$/, '');
   return {
     port: Number(env.PORT || 3000),
     baseUrl,
     secureCookies: baseUrl.startsWith('https://'),
     dataDir: path.resolve(env.DATA_DIR || path.join(__dirname, '..', 'data')),
+    mongoUri: env.MONGODB_URI || '',
+    mongoDb: env.MONGODB_DB || 'ultimate_customizer',
+    cronSecret: env.CRON_SECRET || '',
+    serverless: !!env.VERCEL,
     adminPassword: env.ADMIN_PASSWORD || '',
     sessionSecret: env.SESSION_SECRET || '',
     ghl: {
@@ -44,6 +50,7 @@ function validate(cfg) {
   const problems = [];
   if (!cfg.sessionSecret || cfg.sessionSecret.length < 32) problems.push('SESSION_SECRET must be at least 32 characters');
   if (!cfg.adminPassword || cfg.adminPassword.length < 10) problems.push('ADMIN_PASSWORD must be at least 10 characters');
+  if (cfg.serverless && !cfg.mongoUri) problems.push('MONGODB_URI is required on Vercel (its filesystem is not persistent)');
   if (!cfg.ghl.clientId || !cfg.ghl.clientSecret) problems.push('GHL_CLIENT_ID and GHL_CLIENT_SECRET are required');
   return problems;
 }

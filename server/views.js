@@ -80,7 +80,7 @@ function layout(title, body, opts) {
       : '<a href="/">Check license</a><a href="/dashboard">My dashboard</a>');
   return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<title>' + esc(title) + ' | Ultimate Customizer</title><style>' + CSS + '</style></head><body>' +
-    '<header class="top"><a class="brand" href="' + (opts.admin ? '/admin' : '/') + '">Ultimate Customizer' + (opts.admin ? ' Admin' : '') + '</a><nav>' + nav + '</nav></header>' +
+    '<header class="top"><a class="brand" href="' + (opts.admin ? '/admin' : '/') + '">Ultimate Customizer' + (opts.admin ? ' Super Admin' : '') + '</a><nav>' + nav + '</nav></header>' +
     '<main>' + (opts.flash ? flashHtml(opts.flash) : '') + body + '</main><script>' + COPY_JS + (opts.script || '') + '</script></body></html>';
 }
 
@@ -193,7 +193,7 @@ function dashboard(o) {
 
 /* ------------------------------------------------------------------- admin */
 function adminLogin(error) {
-  return layout('Admin sign in', '<div class="card" style="max-width:420px;margin:50px auto"><h1>Admin</h1>' +
+  return layout('Super Admin sign in', '<div class="card" style="max-width:420px;margin:50px auto"><h1>Super Admin</h1>' +
     (error ? '<div class="flash err">' + esc(error) + '</div>' : '') +
     '<form method="post" action="/admin/login"><label for="pw">Password</label><input type="password" id="pw" name="password" autofocus required>' +
     '<div class="row" style="margin-top:14px"><button class="btn pri">Sign in</button></div></form></div>');
