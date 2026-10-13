@@ -27,7 +27,7 @@ function load() {
     secureCookies: baseUrl.startsWith('https://'),
     dataDir: path.resolve(env.DATA_DIR || path.join(__dirname, '..', 'data')),
     mongoUri: env.MONGODB_URI || '',
-    mongoDb: env.MONGODB_DB || 'ultimate_customizer',
+    mongoDb: env.MONGODB_DB || 'UltimateThemeCustomizer',
     cronSecret: env.CRON_SECRET || '',
     serverless: !!env.VERCEL,
     adminPassword: env.ADMIN_PASSWORD || '',
@@ -42,7 +42,14 @@ function load() {
       webhookEd25519Key: env.GHL_WEBHOOK_ED25519_KEY || '',
       webhookRsaKey: env.GHL_WEBHOOK_RSA_KEY || ''
     },
-    redirectUri: baseUrl + '/oauth/callback'
+    redirectUri: baseUrl + '/oauth/callback',
+    brand: {
+      name: env.BRAND_NAME || 'Ultimate Customizer',
+      supportEmail: env.SUPPORT_EMAIL || 'idylle_radieuse@outlook.com',
+      legalName: env.LEGAL_NAME || env.BRAND_NAME || 'Ultimate Customizer',
+      legalUpdated: env.LEGAL_UPDATED || 'October 13, 2026',
+      marketplaceUrl: env.MARKETPLACE_URL || ''
+    }
   };
 }
 

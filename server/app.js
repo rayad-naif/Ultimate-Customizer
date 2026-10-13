@@ -5,7 +5,7 @@ const { createStore } = require('./store');
 const { createGhl } = require('./ghl');
 const { createLicensing } = require('./licensing');
 const { createBundler } = require('./bundle');
-const views = require('./views');
+const { createViews } = require('./views');
 
 const ADMIN_COOKIE = 'uc_admin';
 const CUST_COOKIE = 'uc_cust';
@@ -21,10 +21,12 @@ function createApp(cfg, deps) {
   const ghl = deps.ghl || createGhl(cfg, deps.fetch);
   const lic = createLicensing(store, ghl, sec);
   const bundler = createBundler(cfg);
+  const views = createViews(Object.assign({ baseUrl: cfg.baseUrl }, cfg.brand));
+  const ownHost = new URL(cfg.baseUrl).hostname;
 
   const limitCheck = rateLimiter(30, 60e3);
   const limitLogin = rateLimiter(8, 15 * 60e3);
-  const limitPublish = rateLimiter(30, 60e3);
+  const limitApi = rateLimiter(150, 60e3);
 
   const app = express();
   app.disable('x-powered-by');
@@ -51,35 +53,46 @@ function createApp(cfg, deps) {
     res.setHeader('Set-Cookie', (Array.isArray(prev) ? prev : prev ? [prev] : []).concat(c));
   }
   const clearCookie = (res, name) => setCookie(res, name, '', { maxAge: 0 });
-
   function session(req, name) {
     const s = sec.unsign(parseCookies(req)[name]);
     return s && s.csrf ? s : null;
   }
-  function flash(res, f) { setCookie(res, FLASH_COOKIE, sec.encrypt(JSON.stringify(f)), { maxAge: 120e3 }); }
+  const flash = (res, f) => setCookie(res, FLASH_COOKIE, sec.encrypt(JSON.stringify(f)), { maxAge: 120e3 });
   function takeFlash(req, res) {
     const raw = parseCookies(req)[FLASH_COOKIE];
     if (!raw) return null;
     clearCookie(res, FLASH_COOKIE);
     try { return JSON.parse(sec.decrypt(raw)); } catch (e) { return null; }
   }
-
   const html = (res, body, status) => {
-    res.status(status || 200).set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'same-origin' }).send(body);
+    res.status(status || 200).set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'same-origin', 'X-Content-Type-Options': 'nosniff' }).send(body);
   };
   const noFrame = (res) => res.set({ 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "frame-ancestors 'none'" });
-
   function csrfOk(req, s) {
     const t = req.get('X-CSRF-Token') || (req.body && req.body._csrf);
     return !!(s && t && safeEqual(t, s.csrf));
   }
   const clientIp = (req) => req.ip || 'unknown';
-
-  function refererHost(req) {
-    const r = req.get('Referer') || req.get('Origin');
+  // Where a request comes from: Origin (CORS calls) or Referer (CSS/JS loads).
+  function originHost(req) {
+    const o = req.get('Origin');
+    if (!o || o === 'null') return '';
+    try { return new URL(o).hostname.toLowerCase(); } catch (e) { return ''; }
+  }
+  function requestHost(req) {
+    const o = originHost(req);
+    if (o) return o;
+    const r = req.get('Referer');
     if (!r) return '';
     try { return new URL(r).hostname.toLowerCase(); } catch (e) { return ''; }
   }
+  const safeNext = (n) => (typeof n === 'string' && /^\/(app|connect)(\?[\w=&%.~-]*)?$/.test(n) && n.length <= 400 ? n : null);
+  const cors = (res) => res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-UC-Verified',
+    'Access-Control-Max-Age': '600'
+  });
 
   /* ---------------- webhooks (raw body, before parsers) ---------------- */
   app.post('/webhooks/ghl', express.raw({ type: '*/*', limit: '256kb' }), ah(async (req, res) => {
@@ -88,10 +101,9 @@ function createApp(cfg, deps) {
     if (verified === false) return res.status(401).json({ error: 'bad signature' });
     let evt;
     try { evt = JSON.parse(raw.toString('utf8')); } catch (e) { return res.status(400).json({ error: 'bad json' }); }
-
     // Work happens before the response: serverless functions freeze once they reply.
     const companyId = evt && typeof evt.companyId === 'string' ? evt.companyId : null;
-    const inst = companyId && await store.get(companyId);
+    const inst = companyId && await lic.get(companyId);
     try {
       if (inst && evt.type === 'UNINSTALL' && !evt.locationId) {
         // Only trust an unsigned webhook after HighLevel itself confirms the token is gone.
@@ -107,145 +119,187 @@ function createApp(cfg, deps) {
   }));
 
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));
-  app.use(express.json({ limit: '100kb' }));
+  app.use(express.json({ limit: '200kb' }));
 
   /* ---------------- licensed assets (loaded inside HighLevel) ---------------- */
+  async function assetCtx(req) {
+    const inst = /^k_[A-Za-z0-9_-]{10,64}$/.test(req.params.key) ? await lic.byKey(req.params.key) : null;
+    const host = requestHost(req);
+    const mode = lic.modeFor(inst, host);
+    if (inst && mode !== 'off' && host && host !== ownHost) {
+      try { await lic.noteRequest(inst, host, mode === 'full' || mode === 'verify'); } catch (e) { /* bookkeeping only */ }
+    }
+    return { inst, host, mode };
+  }
   function assetHeaders(res, type) {
-    res.set({
+    cors(res).set({
       'Content-Type': type,
-      // Revalidate every load (cheap 304 via ETag) so publishes and suspensions apply immediately.
+      // Revalidate every load (cheap 304 via ETag) so changes and suspensions apply at once.
       'Cache-Control': 'no-cache',
-      'Access-Control-Allow-Origin': '*',
       'X-Content-Type-Options': 'nosniff',
-      'Vary': 'Referer'
+      'Vary': 'Origin, Referer, X-UC-Verified'
     });
   }
-  async function assetInstall(req) {
-    const inst = /^k_[A-Za-z0-9_-]{10,64}$/.test(req.params.key) ? await store.byKey(req.params.key) : null;
-    if (!lic.isLicensed(inst)) return null;
-    const host = refererHost(req);
-    if (!lic.hostAllowed(inst, host)) return null;
-    if (host && host !== new URL(cfg.baseUrl).hostname) {
-      try { await lic.noteHost(inst, host); } catch (e) { /* bookkeeping only */ }
-    }
-    return inst;
-  }
+  app.options(['/c/:key/:file', '/api/*'], (req, res) => cors(res).sendStatus(204));
 
   app.get('/c/:key/theme.css', ah(async (req, res) => {
-    const inst = await assetInstall(req);
+    const { inst, mode } = await assetCtx(req);
     assetHeaders(res, 'text/css; charset=utf-8');
-    res.send(inst ? bundler.css(inst) : bundler.inactiveCss);
+    const ok = mode === 'full' || (mode === 'verify' && req.get('X-UC-Verified') === '1');
+    res.send(ok ? bundler.css(inst) : bundler.inactiveCss);
   }));
   app.get('/c/:key/customizer.js', ah(async (req, res) => {
-    const inst = await assetInstall(req);
+    const { inst, mode } = await assetCtx(req);
     assetHeaders(res, 'application/javascript; charset=utf-8');
-    res.send(inst ? bundler.js(inst) : bundler.inactiveJs);
+    res.send(mode === 'off' ? bundler.inactiveJs : bundler.js(inst, mode));
   }));
-  app.get('/c/:key/base.css', ah(async (req, res) => {
-    const inst = await assetInstall(req);
+  app.get('/c/:key/template.css', ah(async (req, res) => {
+    const { mode } = await assetCtx(req);
     assetHeaders(res, 'text/css; charset=utf-8');
-    if (!inst) return res.status(403).send(bundler.inactiveCss);
+    if (mode !== 'full' && mode !== 'verify') return res.status(403).send(bundler.inactiveCss);
     res.set('Cache-Control', 'public, max-age=3600');
-    res.send(bundler.baseCss);
+    res.send(bundler.template);
+  }));
+  // Realtime: open CRM tabs poll this to pick up saved changes.
+  app.get('/c/:key/v.json', ah(async (req, res) => {
+    const { inst, mode } = await assetCtx(req);
+    cors(res).set('Cache-Control', 'no-store');
+    if (mode !== 'full' && mode !== 'verify') return res.status(403).json({ error: 'not available' });
+    const have = Number(req.query.have);
+    res.json(have >= inst.configVersion ? { v: inst.configVersion } : { v: inst.configVersion, config: inst.config });
   }));
 
-  /* ---------------- public API ---------------- */
+  /* ---------------- browser API (called from the CRM) ---------------- */
+  app.post('/api/connect/claim', ah(async (req, res) => {
+    cors(res).set('Cache-Control', 'no-store');
+    if (!limitApi('claim:' + clientIp(req))) return res.status(429).json({ error: 'Too many requests' });
+    const host = originHost(req);
+    const body = req.body || {};
+    const inst = typeof body.key === 'string' ? await lic.byKey(body.key) : null;
+    if (!inst || !lic.isLicensed(inst)) return res.status(403).json({ error: 'License is not active' });
+    if (!host) return res.status(400).json({ error: 'Missing origin' });
+    const token = await lic.claimPairing(inst, body.pair, host);
+    if (!token) return res.status(202).json({ pending: true });
+    res.json({ token, host });
+  }));
+
+  app.put('/api/config', ah(async (req, res) => {
+    cors(res).set('Cache-Control', 'no-store');
+    if (!limitApi('cfg:' + clientIp(req))) return res.status(429).json({ error: 'Too many saves, slow down' });
+    const body = req.body || {};
+    const inst = typeof body.key === 'string' ? await lic.byKey(body.key) : null;
+    const auth = (req.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+    if (!inst || !lic.checkEditorToken(inst, auth, originHost(req))) return res.status(401).json({ error: 'This browser is not connected' });
+    if (!lic.isLicensed(inst)) return res.status(403).json({ error: 'License is not active' });
+    if (!body.config || typeof body.config !== 'object') return res.status(400).json({ error: 'Missing config' });
+    await lic.saveConfig(inst, body.config, null);
+    res.json({ ok: true, version: inst.configVersion });
+  }));
+
+  /* ---------------- public pages ---------------- */
+  app.get('/', (req, res) => html(res, views.home({ companyId: typeof req.query.companyId === 'string' ? req.query.companyId : '' })));
+  app.get('/docs', (req, res) => html(res, views.docs()));
+  app.get('/privacy', (req, res) => html(res, views.privacy()));
+  app.get('/terms', (req, res) => html(res, views.terms()));
+  app.get('/health', (req, res) => res.json({ ok: true }));
+  app.get('/dashboard', (req, res) => res.redirect(301, '/app'));
+
   app.get('/api/check', ah(async (req, res) => {
     res.set({ 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
     if (!limitCheck('check:' + clientIp(req))) return res.status(429).json({ error: 'Too many checks. Try again in a minute.' });
     const id = String(req.query.companyId || '').trim();
     if (!lic.COMPANY_RE.test(id)) return res.status(400).json({ error: 'That does not look like a Company ID.' });
-    const inst = await store.get(id);
-    const status = lic.statusOf(inst);
+    const status = lic.statusOf(await lic.get(id));
     res.json({ companyId: id, licensed: status === 'active', status: status === 'uninstalled' ? 'not_installed' : status });
-  }));
-
-  app.options('/api/publish', (req, res) => {
-    res.set({
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-UC-Publish-Key',
-      'Access-Control-Max-Age': '600'
-    }).sendStatus(204);
-  });
-  app.post('/api/publish', ah(async (req, res) => {
-    res.set({ 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
-    if (!limitPublish('pub:' + clientIp(req))) return res.status(429).json({ error: 'Too many requests' });
-    const body = req.body || {};
-    const inst = typeof body.key === 'string' ? await store.byKey(body.key) : null;
-    if (!inst || !lic.checkPublishKey(inst, req.get('X-UC-Publish-Key'))) return res.status(401).json({ error: 'Invalid publish key' });
-    if (!lic.isLicensed(inst)) return res.status(403).json({ error: 'License is not active' });
-    if (!body.config || typeof body.config !== 'object') return res.status(400).json({ error: 'Missing config' });
-    const saved = await lic.saveConfig(inst, body.config, 'in-app publish');
-    res.json({ ok: true, config: saved, version: inst.configVersion });
   }));
 
   /* ---------------- OAuth (Target User: Agency) ---------------- */
   app.get('/oauth/start', (req, res) => {
     const state = randomToken(18);
-    setCookie(res, STATE_COOKIE, sec.sign({ state, exp: Date.now() + 15 * 60e3 }), { maxAge: 15 * 60e3 });
+    setCookie(res, STATE_COOKIE, sec.sign({ state, next: safeNext(req.query.next), exp: Date.now() + 15 * 60e3 }), { maxAge: 15 * 60e3 });
     res.redirect(ghl.authorizeUrl(state));
   });
 
-  app.get('/oauth/callback', async (req, res) => {
+  app.get('/oauth/callback', ah(async (req, res) => {
     const code = typeof req.query.code === 'string' ? req.query.code : '';
     if (!code) return html(res, views.message('Install failed', req.query.error_description || req.query.error || 'No authorization code was returned by HighLevel.'), 400);
+    let next = '/app';
     // Marketplace-initiated installs carry no state; ones we started must match.
     if (req.query.state) {
       const st = sec.unsign(parseCookies(req)[STATE_COOKIE]);
-      if (!st || !safeEqual(String(req.query.state), st.state)) return html(res, views.message('Install failed', 'The sign-in link expired. Please try again.'), 400);
+      if (!st || !safeEqual(String(req.query.state), st.state)) return html(res, views.message('Sign-in failed', 'The sign-in link expired. Please try again.'), 400);
+      next = safeNext(st.next) || '/app';
     }
     clearCookie(res, STATE_COOKIE);
     try {
-      const { inst, publishKey } = await lic.installFromOAuth(code);
+      const inst = await lic.installFromOAuth(code);
       setCookie(res, CUST_COOKIE, sec.sign({ companyId: inst.companyId, csrf: randomToken(18), exp: Date.now() + CUST_TTL }), { maxAge: CUST_TTL });
-      flash(res, publishKey ? { publishKey } : { type: 'ok', msg: 'Connected to HighLevel. Your license is active.' });
-      res.redirect('/dashboard');
+      res.redirect(next);
     } catch (e) {
       try { await store.log(null, 'oauth_error', e.message); } catch (x) { /* ignore */ }
-      html(res, views.message('Install failed', e.status === 400 && /agency/i.test(e.message) ? e.message : 'HighLevel did not accept the authorization. Please try installing again.'), 400);
+      html(res, views.message('Install failed', e.status === 400 && /agency/i.test(e.message) ? e.message : 'HighLevel did not accept the authorization. Please try again.'), 400);
     }
-  });
+  }));
 
-  /* ---------------- public pages ---------------- */
-  app.get('/', (req, res) => html(res, views.home({ companyId: typeof req.query.companyId === 'string' ? req.query.companyId : '' })));
-  app.get('/health', (req, res) => res.json({ ok: true }));
-
-  /* ---------------- customer dashboard ---------------- */
+  /* ---------------- customer app page ---------------- */
   const customer = ah(async (req, res, next) => {
     const s = session(req, CUST_COOKIE);
-    const inst = s && await store.get(s.companyId);
+    const inst = s && await lic.get(s.companyId);
     if (!inst) {
-      if (req.method === 'GET') return html(res, views.signIn());
-      return res.status(401).json({ error: 'Signed out' });
+      if (req.method === 'GET') return html(res, views.signIn(safeNext(req.originalUrl)));
+      return res.status(401).send('Signed out');
     }
     if (req.method !== 'GET' && !csrfOk(req, s)) return res.status(403).send('Invalid CSRF token');
     req.s = s; req.inst = inst;
     next();
   });
 
-  app.get('/dashboard', customer, (req, res) => {
-    html(res, views.dashboard({ inst: req.inst, status: lic.statusOf(req.inst), baseUrl: cfg.baseUrl, csrf: req.s.csrf, flash: takeFlash(req, res) }));
+  app.get('/app', customer, (req, res) => {
+    html(res, views.appPage({ inst: req.inst, status: lic.statusOf(req.inst), baseUrl: cfg.baseUrl, csrf: req.s.csrf, flash: takeFlash(req, res) }));
   });
-  app.post('/dashboard/config', customer, ah(async (req, res) => {
-    if (!lic.isLicensed(req.inst)) return res.status(403).json({ error: 'License is not active' });
-    if (!req.body || typeof req.body.config !== 'object') return res.status(400).json({ error: 'Missing config' });
-    res.json({ ok: true, config: await lic.saveConfig(req.inst, req.body.config, 'dashboard') });
+  app.post('/app/domains/add', customer, ah(async (req, res) => {
+    const host = lic.cleanHost(req.body.host);
+    try {
+      if (!lic.validHost(host)) throw new Error('That does not look like a domain, e.g. app.youragency.com');
+      await lic.bindHost(req.inst, host, 'added on app page');
+      flash(res, { type: 'ok', msg: host + ' connected.' + (lic.isShared(host) ? ' This is a shared HighLevel domain, so the theme loads after a quick user check.' : '') });
+    } catch (e) { flash(res, { type: 'err', msg: e.message }); }
+    res.redirect('/app');
   }));
-  app.post('/dashboard/publish-key', customer, ah(async (req, res) => {
-    flash(res, { publishKey: await lic.rotatePublishKey(req.inst) });
-    res.redirect('/dashboard');
+  app.post('/app/domains/remove', customer, ah(async (req, res) => {
+    await lic.unbindHost(req.inst, lic.cleanHost(req.body.host), 'agency');
+    flash(res, { type: 'ok', msg: 'Domain removed.' });
+    res.redirect('/app');
   }));
-  app.post('/dashboard/domains', customer, ah(async (req, res) => {
-    req.inst.allowedHosts = lic.parseHosts(req.body.hosts);
-    await store.put(req.inst);
-    await store.log(req.inst.companyId, 'domains_saved', req.inst.allowedHosts.join(', '));
-    flash(res, { type: 'ok', msg: 'Allowed domains saved.' });
-    res.redirect('/dashboard');
+  app.post('/app/revoke-editors', customer, ah(async (req, res) => {
+    await lic.revokeEditors(req.inst, 'agency');
+    flash(res, { type: 'ok', msg: 'All editors signed out. Browsers must reconnect to edit.' });
+    res.redirect('/app');
   }));
   app.post('/logout', (req, res) => { clearCookie(res, CUST_COOKIE); res.redirect('/'); });
 
-  /* ---------------- admin panel ---------------- */
+  /* ---------------- connect a CRM domain (popup) ---------------- */
+  function connectCheck(req) {
+    const key = String((req.method === 'GET' ? req.query.key : req.body.key) || '');
+    const pair = String((req.method === 'GET' ? req.query.pair : req.body.pair) || '');
+    if (!lic.validPair(pair)) return { key, pair, error: 'This connection link is invalid or incomplete. Start again from your CRM.' };
+    if (key !== req.inst.key) return { key, pair, error: 'This CRM’s script belongs to a different agency than the one you signed in with. Sign in with the agency that purchased the app.' };
+    if (!lic.isLicensed(req.inst)) return { key, pair, error: 'Your license is not active.' };
+    return { key, pair };
+  }
+  app.get('/connect', customer, (req, res) => {
+    noFrame(res);
+    const c = connectCheck(req);
+    html(res, views.connectPage(Object.assign({ inst: req.inst, csrf: req.s.csrf }, c)), c.error ? 400 : 200);
+  });
+  app.post('/connect', customer, ah(async (req, res) => {
+    noFrame(res);
+    const c = connectCheck(req);
+    if (!c.error) await lic.approvePairing(req.inst, c.pair);
+    html(res, views.connectPage(Object.assign({ inst: req.inst, csrf: req.s.csrf, done: !c.error }, c)), c.error ? 400 : 200);
+  }));
+
+  /* ---------------- Super Admin ---------------- */
   function admin(req, res, next) {
     noFrame(res);
     const s = session(req, ADMIN_COOKIE);
@@ -258,7 +312,7 @@ function createApp(cfg, deps) {
     next();
   }
   const adminInst = ah(async (req, res, next) => {
-    const inst = await store.get(req.params.companyId);
+    const inst = await lic.get(req.params.companyId);
     if (!inst) return html(res, views.message('Not found', 'No agency with that Company ID.', { back: '/admin' }), 404);
     req.inst = inst;
     next();
@@ -280,15 +334,14 @@ function createApp(cfg, deps) {
   app.post('/admin/logout', admin, (req, res) => { clearCookie(res, ADMIN_COOKIE); res.redirect('/admin/login'); });
 
   app.get('/admin', admin, ah(async (req, res) => {
-    const rows = (await store.list()).map((inst) => ({ inst, status: lic.statusOf(inst) }));
+    const rows = (await lic.list()).map((inst) => ({ inst, status: lic.statusOf(inst) }));
     html(res, views.adminList({ rows, csrf: req.s.csrf, flash: takeFlash(req, res) }));
   }));
   app.get('/admin/events', admin, ah(async (req, res) => html(res, views.adminEvents({ events: await store.events(null, 300), csrf: req.s.csrf }))));
-
   app.post('/admin/add', admin, ah(async (req, res) => {
     try {
-      const { inst, publishKey } = await lic.addManual(String(req.body.companyId || '').trim(), String(req.body.name || '').trim());
-      flash(res, publishKey ? { publishKey } : { type: 'ok', msg: 'License re-activated.' });
+      const inst = await lic.addManual(String(req.body.companyId || '').trim(), String(req.body.name || '').trim());
+      flash(res, { type: 'ok', msg: 'License active. Send the agency the snippets below.' });
       res.redirect('/admin/i/' + encodeURIComponent(inst.companyId));
     } catch (e) {
       flash(res, { type: 'err', msg: e.message });
@@ -304,60 +357,58 @@ function createApp(cfg, deps) {
   app.get('/admin/i/:companyId', admin, adminInst, ah(async (req, res) => {
     html(res, views.adminDetail({ inst: req.inst, status: lic.statusOf(req.inst), events: await store.events(req.inst.companyId, 100), baseUrl: cfg.baseUrl, csrf: req.s.csrf, flash: takeFlash(req, res) }));
   }));
-  app.post('/admin/i/:companyId/suspend', admin, adminInst, ah(async (req, res) => {
-    req.inst.suspended = true;
-    await store.put(req.inst);
-    await store.log(req.inst.companyId, 'suspended', 'by admin');
+  const adminAction = (path, fn) => app.post('/admin/i/:companyId/' + path, admin, adminInst, ah(fn));
+  adminAction('suspend', async (req, res) => {
+    req.inst.suspended = true; await store.put(req.inst); await store.log(req.inst.companyId, 'suspended', 'by super admin');
     back(req, res, 'License suspended.');
-  }));
-  app.post('/admin/i/:companyId/resume', admin, adminInst, ah(async (req, res) => {
-    req.inst.suspended = false;
-    await store.put(req.inst);
-    await store.log(req.inst.companyId, 'resumed', 'by admin');
+  });
+  adminAction('resume', async (req, res) => {
+    req.inst.suspended = false; await store.put(req.inst); await store.log(req.inst.companyId, 'resumed', 'by super admin');
     back(req, res, 'License resumed.');
-  }));
-  app.post('/admin/i/:companyId/mark-installed', admin, adminInst, ah(async (req, res) => {
-    req.inst.installed = true;
-    req.inst.uninstalledAt = null;
-    await store.put(req.inst);
-    await store.log(req.inst.companyId, 'marked_installed', 'by admin');
+  });
+  adminAction('mark-installed', async (req, res) => {
+    req.inst.installed = true; req.inst.uninstalledAt = null; await store.put(req.inst); await store.log(req.inst.companyId, 'marked_installed', 'by super admin');
     back(req, res, 'Marked as installed.');
-  }));
-  app.post('/admin/i/:companyId/verify', admin, adminInst, ah(async (req, res) => {
+  });
+  adminAction('verify', async (req, res) => {
     const r = await lic.verify(req.inst);
     back(req, res, 'HighLevel check: ' + r, r.startsWith('error') ? 'err' : 'ok');
-  }));
-  app.post('/admin/i/:companyId/config', admin, adminInst, ah(async (req, res) => {
+  });
+  adminAction('config', async (req, res) => {
     if (!req.body || typeof req.body.config !== 'object') return res.status(400).json({ error: 'Missing config' });
-    res.json({ ok: true, config: await lic.saveConfig(req.inst, req.body.config, 'admin') });
-  }));
-  app.post('/admin/i/:companyId/meta', admin, adminInst, ah(async (req, res) => {
+    res.json({ ok: true, config: await lic.saveConfig(req.inst, req.body.config, 'super admin') });
+  });
+  adminAction('meta', async (req, res) => {
     req.inst.name = String(req.body.name || '').trim().slice(0, 120);
     req.inst.notes = String(req.body.notes || '').slice(0, 5000);
-    req.inst.allowedHosts = lic.parseHosts(req.body.hosts);
     await store.put(req.inst);
     back(req, res, 'Saved.');
-  }));
-  app.post('/admin/i/:companyId/publish-key', admin, adminInst, ah(async (req, res) => {
-    flash(res, { publishKey: await lic.rotatePublishKey(req.inst) });
-    res.redirect('/admin/i/' + encodeURIComponent(req.inst.companyId));
-  }));
-  app.post('/admin/i/:companyId/asset-key', admin, adminInst, ah(async (req, res) => {
+  });
+  adminAction('bind', async (req, res) => {
+    try { const h = await lic.bindHost(req.inst, req.body.host, 'super admin'); back(req, res, h + ' connected.'); }
+    catch (e) { back(req, res, e.message, 'err'); }
+  });
+  adminAction('unbind', async (req, res) => {
+    await lic.unbindHost(req.inst, lic.cleanHost(req.body.host), 'super admin');
+    back(req, res, 'Domain disconnected.');
+  });
+  adminAction('revoke-editors', async (req, res) => {
+    await lic.revokeEditors(req.inst, 'super admin');
+    back(req, res, 'All editors signed out.');
+  });
+  adminAction('asset-key', async (req, res) => {
     await lic.rotateAssetKey(req.inst);
-    back(req, res, 'New CSS/JS URLs generated. Send the new snippets to the customer.');
-  }));
-  app.post('/admin/i/:companyId/delete', admin, adminInst, ah(async (req, res) => {
-    await store.remove(req.inst.companyId);
-    await store.log(req.inst.companyId, 'deleted', 'by admin');
+    back(req, res, 'New CSS/JS URLs generated. Send the new snippets to the agency.');
+  });
+  adminAction('delete', async (req, res) => {
+    await store.remove(req.inst.companyId); await store.log(req.inst.companyId, 'deleted', 'by super admin');
     flash(res, { type: 'ok', msg: 'Agency deleted.' });
     res.redirect('/admin');
-  }));
+  });
 
-  /* ---------------- scheduled install check ----------------
-     Confirms installed agencies still have the app (catches missed UNINSTALL
-     webhooks). Oldest checks first, in batches that fit a serverless timeout. */
+  /* ---------------- scheduled install check ---------------- */
   async function verifyBatch(limit) {
-    const due = (await store.list())
+    const due = (await lic.list())
       .filter((i) => i.installed && i.tokens)
       .sort((a, b) => String(a.lastVerifiedAt || '').localeCompare(String(b.lastVerifiedAt || '')));
     let revoked = 0;
@@ -379,7 +430,8 @@ function createApp(cfg, deps) {
   app.use((err, req, res, next) => {
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Too large' });
     console.error(err);
-    html(res, views.message('Error', 'Something went wrong.'), 500);
+    if (req.path.startsWith('/c/') || req.path.startsWith('/api/')) return res.status(500).json({ error: 'Server error' });
+    html(res, views.message('Error', 'Something went wrong. Please try again.'), 500);
   });
 
   app.locals.store = store;

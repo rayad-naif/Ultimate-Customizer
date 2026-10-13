@@ -1,31 +1,30 @@
 /* =====================================================================
-   CUSTOMIZER POPUP  (agency admins only)
-   Adds "Ultimate Customizer" to the profile dropdown. Changes preview live
-   and "Publish" sends them to the server, which regenerates this agency's
-   CSS/JS for every user.
+   CUSTOMIZER  (agency admins only)
+   Adds "Ultimate Customizer" above Sign out in the profile dropdown.
+   - setup mode (domain not connected): the item connects the domain
+   - otherwise: a full editor; every change previews instantly and is
+     saved to the server automatically, which updates every user.
    ===================================================================== */
 /* global UC */
 (function UCCustomizer() {
   'use strict';
-  const E = UC.engine;
+  const E = UC.E;
+  const R = E.R;
   const NAV = E.NAV;
-  const PK_LS = 'uc_publish_key_' + UC.license.key;
-
-  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
   /* ------------------------------------------------------------------
-     1. ADMIN DETECTION  (agency admin role from the user GHL loads)
+     1. ADMIN DETECTION
   ------------------------------------------------------------------ */
   function isAdmin() {
-    if (UC.killed) return false;
-    const email = UC.currentEmail();
-    const u = email && UC.users[email];
+    if (UC.killed || UC.company === 'mismatch') return false;
+    const u = UC.users[UC.currentEmail()];
     const r = u && u.roles;
     return !!(r && String(r.type).toLowerCase() === 'agency' && String(r.role).toLowerCase() === 'admin');
   }
 
   /* ------------------------------------------------------------------
-     2. SIDEBAR RENAMES  (the only thing CSS can't do)
+     2. SIDEBAR RENAMES
   ------------------------------------------------------------------ */
   function currentView() {
     if (document.querySelector('.sidebar-v2-agency')) return 'agency';
@@ -34,11 +33,11 @@
   }
   function keyOf(a) {
     const id = a.id || a.getAttribute('meta') || '';
-    const m = id.match(/^sb_[^.]+\.(.+)$/); // custom objects carry the location id; strip it
+    const m = id.match(/^sb_[^.]+\.(.+)$/);
     return m ? '*.' + m[1] : id;
   }
   function applyNames() {
-    const names = (UC.killed ? {} : (UC.active.sidebar[currentView()] || {}).names) || {};
+    const names = (UC.live && !UC.killed ? (UC.active.sidebar[currentView()] || {}).names : null) || {};
     document.querySelectorAll(NAV + ' > a').forEach((a) => {
       const t = a.querySelector('.nav-title');
       if (!t) return;
@@ -49,15 +48,15 @@
     });
   }
   let nameRaf = 0;
-  const nameObs = new MutationObserver(() => {
-    if (nameRaf) return;
-    nameRaf = requestAnimationFrame(() => { nameRaf = 0; applyNames(); });
-  });
-  nameObs.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
-  UC.onKill(() => { applyNames(); nameObs.disconnect(); closeUI(true); removeMenuItem(); });
+  const nameObs = new MutationObserver(() => { if (!nameRaf) nameRaf = requestAnimationFrame(() => { nameRaf = 0; applyNames(); }); });
+  if (UC.mode !== 'setup') {
+    nameObs.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    UC.onChange(applyNames);
+  }
+  UC.onKill(() => { applyNames(); nameObs.disconnect(); closeUI(); removeMenuItem(); });
 
   /* ------------------------------------------------------------------
-     3. MENU ITEM IN THE PROFILE DROPDOWN
+     3. MENU ITEM
   ------------------------------------------------------------------ */
   function removeMenuItem() {
     const existing = document.getElementById('irvex-uc-menu-item');
@@ -69,6 +68,7 @@
   function ensureMenuItem() {
     const menu = document.querySelector('.hl_header--dropdown .dropdown-menu');
     if (!menu || !isAdmin()) { removeMenuItem(); return; }
+    const label = UC.mode === 'setup' ? 'Connect Ultimate Customizer' : 'Ultimate Customizer';
     const existing = document.getElementById('irvex-uc-menu-item');
     if (existing && menu.contains(existing)) return;
     const signout = Array.from(menu.querySelectorAll('a.dropdown-item')).find((a) => /sign\s*out/i.test(a.textContent));
@@ -77,122 +77,150 @@
     item.id = 'irvex-uc-menu-item';
     item.className = 'py-2 dropdown-item';
     item.href = 'javascript:void(0);';
-    item.innerHTML = '<i class="fas fa-palette" style="margin-right:8px"></i>Ultimate Customizer';
+    item.innerHTML = '<i class="fas fa-palette" style="margin-right:8px"></i>' + label;
     const hr = document.createElement('hr');
     hr.className = 'dropdown-divider irvex-uc-hr';
     signout.before(item, hr);
   }
   document.addEventListener('click', (e) => {
     const t = e.target.closest && e.target.closest('#irvex-uc-menu-item');
-    if (t) { e.preventDefault(); openUI(); }
+    if (!t) return;
+    e.preventDefault();
+    if (UC.mode === 'setup' || !UC.editorToken()) openUI('connect'); else openUI('editor');
   }, true);
 
   /* ------------------------------------------------------------------
-     4. POPUP  (Shadow DOM so GHL CSS can't leak in)
+     4. PANEL SHELL
   ------------------------------------------------------------------ */
-  const PRESETS = {
-    'IRVEX Cyan & Gold': { navy: '#000414', cyan: '#00e5ff', teal: '#00ced1', gold: '#ffd700', light: '#f4f7fa', red: '#ff1e28' },
-    'Violet Nova': { navy: '#0b0420', cyan: '#b388ff', teal: '#7c4dff', gold: '#ff80ab', light: '#f6f3fb', red: '#ff4081' },
-    'Emerald Executive': { navy: '#02140d', cyan: '#2ee6a6', teal: '#12b886', gold: '#e6c35c', light: '#f3f8f5', red: '#ff5a4d' },
-    'Crimson Night': { navy: '#14040a', cyan: '#ff4d6d', teal: '#e11d48', gold: '#ffb703', light: '#faf4f5', red: '#ff1e28' },
-    'Ocean Blue': { navy: '#020a1f', cyan: '#4cc9f0', teal: '#3a86ff', gold: '#ffd166', light: '#f2f6fc', red: '#ef476f' }
-  };
-  const COLOR_META = [
-    { key: 'navy', label: 'Base / Sidebar', hint: 'Sidebar, glass header, login background' },
-    { key: 'cyan', label: 'Primary accent', hint: 'Links, borders, glows, buttons' },
-    { key: 'teal', label: 'Secondary accent', hint: 'Menu text, labels, form borders' },
-    { key: 'gold', label: 'Highlight / Active', hint: 'Active tab, hover, alert badges' },
-    { key: 'light', label: 'Page surface', hint: 'Light wrapper behind cards & tables' },
-    { key: 'red', label: 'Login accent', hint: 'Red grid and network on the login page' }
-  ];
+  const TABS = [['themes', 'Themes']].concat(R.GROUPS.map((g) => [g.id, g.label])).concat([['menu', 'Menu'], ['advanced', 'Advanced']]);
 
   const UI_CSS = `
 :host{all:initial}
 *{box-sizing:border-box;font-family:Inter,'Segoe UI',system-ui,sans-serif}
 .wrap{position:fixed;inset:0;pointer-events:none;z-index:2147483000}
-.panel{--navy:#000414;--accent:#00e5ff;--gold:#ffd700;pointer-events:auto;position:absolute;top:14px;right:14px;bottom:14px;width:min(440px,calc(100vw - 28px));display:flex;flex-direction:column;
- background:rgba(0,10,26,.94);color:#e6f7ff;border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:18px;
- box-shadow:0 30px 80px rgba(0,0,0,.65),0 0 30px color-mix(in srgb,var(--accent) 18%,transparent);backdrop-filter:blur(18px);overflow:hidden}
-header{padding:16px 18px 10px;display:flex;align-items:center;gap:10px;border-bottom:1px solid color-mix(in srgb,var(--accent) 20%,transparent);cursor:move}
-header h3{margin:0;font-size:15px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;background:linear-gradient(135deg,var(--accent),var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent;flex:1}
-.badge{font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid var(--gold);color:var(--gold)}
-.x{background:none;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);color:var(--accent);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;line-height:1}
+.panel{--navy:#000414;--accent:#00e5ff;--gold:#ffd700;pointer-events:auto;position:absolute;top:12px;right:12px;bottom:12px;width:min(470px,calc(100vw - 24px));display:flex;flex-direction:column;
+ background:rgba(4,10,24,.97);color:#e6f7ff;border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:18px;
+ box-shadow:0 30px 80px rgba(0,0,0,.65),0 0 30px color-mix(in srgb,var(--accent) 18%,transparent);overflow:hidden;font-size:13px}
+header{padding:14px 16px 10px;display:flex;align-items:center;gap:10px;border-bottom:1px solid color-mix(in srgb,var(--accent) 20%,transparent);cursor:move}
+header h3{margin:0;font-size:14px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;background:linear-gradient(135deg,var(--accent),var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent;flex:1}
+.status{font-size:11px;color:#8fb7c9;white-space:nowrap}
+.status.err{color:#ff6b7a}.status.ok{color:#2ee6a6}
+.x{background:none;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);color:var(--accent);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;line-height:1;flex:none}
 .x:hover{background:var(--gold);color:var(--navy);border-color:var(--gold)}
-.tabs{display:flex;gap:2px;padding:8px 12px 0;border-bottom:1px solid color-mix(in srgb,var(--accent) 15%,transparent)}
-.tab{flex:1;background:none;border:0;color:#8fb7c9;padding:9px 4px 11px;font-weight:600;font-size:12.5px;cursor:pointer;border-bottom:3px solid transparent}
-.tab:hover{color:var(--accent)}
-.tab.on{color:var(--gold);border-bottom-color:var(--gold)}
-.body{flex:1;overflow:auto;padding:14px 18px 18px}
-h4{margin:16px 0 8px;font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--accent)}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:10px 12px;border-bottom:1px solid color-mix(in srgb,var(--accent) 15%,transparent)}
+.tab{background:rgba(255,255,255,.04);border:1px solid transparent;color:#9cc3d5;padding:6px 10px;border-radius:99px;font-weight:600;font-size:12px;cursor:pointer}
+.tab:hover{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 30%,transparent)}
+.tab.on{color:var(--navy);background:var(--accent)}
+.search{padding:8px 12px 0}
+.body{flex:1;overflow:auto;padding:10px 16px 18px}
+details{border:1px solid rgba(255,255,255,.07);border-radius:12px;margin:0 0 10px;background:rgba(255,255,255,.02)}
+summary{cursor:pointer;padding:10px 12px;font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:var(--accent);font-weight:700;list-style:none;display:flex;justify-content:space-between}
+summary::after{content:'+';color:#6f93a4}details[open] summary::after{content:'\\2212'}
+.sec{padding:0 12px 8px}
+h4{margin:14px 0 8px;font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--accent)}
 h4:first-child{margin-top:0}
-.note{font-size:11.5px;color:#8fb7c9;line-height:1.5;margin:10px 0}
+.note{font-size:11.5px;color:#8fb7c9;line-height:1.5;margin:8px 0}
 .note a{color:var(--accent)}
-.presets{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.preset{display:flex;flex-direction:column;gap:6px;text-align:left;background:rgba(255,255,255,.04);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);color:#e6f7ff;border-radius:10px;padding:8px;cursor:pointer;font-size:12px}
-.preset:hover{border-color:var(--gold)}
-.preset span{display:block;height:14px;border-radius:6px}
-.crow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)}
-.crow b{display:block;font-size:13px}
-.crow small{color:#8fb7c9;font-size:11px}
-.cin{display:flex;gap:6px;align-items:center}
-input[type=color]{width:38px;height:32px;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);background:none;border-radius:8px;padding:2px;cursor:pointer}
-input[type=text],input[type=password],select,textarea{background:rgba(0,26,51,.8);border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);color:#e6f7ff;border-radius:8px;padding:7px 9px;font-size:12.5px;outline:none}
+.ctl{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.ctl:last-child{border-bottom:0}
+.lbl{min-width:0;flex:1}
+.lbl b{display:block;font-weight:600;font-size:12.5px}
+.lbl small{display:block;color:#7fa3b5;font-size:10.5px;margin-top:1px}
+.lbl .grp{color:#56788a}
+.ctl.set .lbl b::after{content:' \\2022';color:var(--gold)}
+.in{display:flex;align-items:center;gap:6px;flex:none}
+.rs{background:none;border:0;color:#6f93a4;cursor:pointer;font-size:14px;width:20px;padding:0;visibility:hidden}
+.ctl.set .rs{visibility:visible}.rs:hover{color:var(--gold)}
+input[type=color]{width:34px;height:28px;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);background:none;border-radius:7px;padding:2px;cursor:pointer}
+input[type=text],input[type=number],select,textarea{background:rgba(0,26,51,.85);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);color:#e6f7ff;border-radius:8px;padding:6px 8px;font-size:12px;outline:none}
 input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
-.cin input[type=text]{width:84px;font-family:ui-monospace,monospace}
-.frow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px}
-.frow small{display:block;color:#8fb7c9;font-size:11px}
-.frow input[type=range]{width:150px;accent-color:var(--accent)}
-.frow input[type=checkbox],.row input[type=checkbox]{accent-color:var(--accent);width:17px;height:17px}
-.rv{display:inline-block;min-width:34px;text-align:right;color:var(--gold);font-size:12px}
+.hex{width:76px;font-family:ui-monospace,monospace}
+.txt{width:190px}
+.num{width:58px}
+input[type=range]{width:120px;accent-color:var(--accent)}
+input[type=checkbox]{accent-color:var(--accent);width:17px;height:17px}
+select{max-width:190px}
+.full{width:100%}
+.themes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.theme{display:flex;flex-direction:column;gap:7px;text-align:left;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#e6f7ff;border-radius:12px;padding:9px;cursor:pointer;font-size:12px;font-weight:600}
+.theme:hover{border-color:var(--gold)}
+.theme.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.theme i{display:flex;height:34px;border-radius:8px;overflow:hidden}
+.theme i span{flex:1}
 .row{display:flex;align-items:center;gap:8px;padding:7px 8px;margin-bottom:6px;background:rgba(255,255,255,.04);border:1px solid color-mix(in srgb,var(--accent) 18%,transparent);border-radius:10px}
-.row.drag{opacity:.4}
-.row.hid .name{opacity:.45}
+.row.drag{opacity:.4}.row.hid .name{opacity:.45}
 .grip{cursor:grab;color:var(--accent);font-size:15px;user-select:none;padding:0 3px}
-.names{flex:1;min-width:0}
-.names input{width:100%}
+.names{flex:1;min-width:0}.names input{width:100%}
 .names small{display:block;color:#6f93a4;font-size:10.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mv{background:none;border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);color:var(--accent);border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:10px}
 .mv:hover{background:var(--accent);color:var(--navy)}
-footer{display:flex;gap:8px;padding:12px 18px;border-top:1px solid color-mix(in srgb,var(--accent) 20%,transparent);background:rgba(0,4,20,.6)}
-.btn{border-radius:9px;border:1px solid color-mix(in srgb,var(--accent) 50%,transparent);background:transparent;color:var(--accent);padding:9px 13px;font-weight:700;font-size:12.5px;cursor:pointer}
+footer{display:flex;gap:8px;align-items:center;padding:10px 16px;border-top:1px solid color-mix(in srgb,var(--accent) 20%,transparent);background:rgba(0,4,20,.6)}
+footer .note{margin:0;flex:1}
+.btn{border-radius:9px;border:1px solid color-mix(in srgb,var(--accent) 50%,transparent);background:transparent;color:var(--accent);padding:8px 12px;font-weight:700;font-size:12px;cursor:pointer}
 .btn:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
-.btn:disabled{opacity:.5;cursor:wait}
-.btn.pri{background:var(--accent);color:var(--navy);border-color:var(--accent);margin-left:auto}
+.btn.pri{background:var(--accent);color:var(--navy);border-color:var(--accent)}
 .btn.pri:hover{background:var(--gold);border-color:var(--gold)}
-.btn.sm{padding:6px 10px;font-size:12px}
-textarea{width:100%;height:150px;font-family:ui-monospace,monospace;font-size:11px;resize:vertical}
-.full{width:100%}
+.btn.sm{padding:5px 9px;font-size:11.5px}
+textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-size:11px;resize:vertical}
 .btns{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
-.toast{position:absolute;left:50%;bottom:70px;transform:translateX(-50%);background:var(--gold);color:var(--navy);font-weight:700;font-size:12px;padding:8px 14px;border-radius:99px;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;max-width:90%;overflow:hidden;text-overflow:ellipsis}
+.connect{padding:26px 22px;text-align:center}
+.connect h2{margin:6px 0 10px;font-size:18px}
+.connect p{color:#9cc3d5;line-height:1.55;font-size:13px}
+.spin{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.1);border-top-color:var(--accent);animation:sp 1s linear infinite;margin:18px auto}
+@keyframes sp{to{transform:rotate(360deg)}}
+.toast{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);background:var(--gold);color:var(--navy);font-weight:700;font-size:12px;padding:8px 14px;border-radius:99px;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;max-width:90%;overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1}
+.empty{color:#7fa3b5;text-align:center;padding:30px 0}
 `;
 
-  let host = null, shadow = null, draft = null, tab = 'colors', dragKey = null, dirty = false, busy = false;
+  let host = null, shadow = null, draft = null, opened = null, tab = 'themes', query = '', dragKey = null, view = 'editor';
+  let saveTimer = 0, saving = false, pendingSave = false, connectTimer = 0;
 
-  function openUI() {
+  function openUI(which) {
     if (host || !isAdmin()) return;
-    draft = E.clone(UC.active);
-    dirty = false;
+    view = which;
     host = document.createElement('div');
     host.id = 'irvex-uc-host';
     shadow = host.attachShadow({ mode: 'open' });
-    shadow.innerHTML =
-      '<style>' + UI_CSS + '</style><div class="wrap"><div class="panel" role="dialog" aria-label="Ultimate Customizer">' +
-      '<header><h3>Ultimate Customizer</h3><span class="badge" id="vb"></span><button class="x" data-act="close" title="Close">&times;</button></header>' +
-      '<div class="tabs">' +
-      ['colors:Colors', 'fx:Effects', 'sidebar:Sidebar', 'publish:Publish'].map((t) => { const p = t.split(':'); return '<button class="tab" data-tab="' + p[0] + '">' + p[1] + '</button>'; }).join('') +
-      '</div><div class="body" id="body"></div>' +
-      '<footer><button class="btn" data-act="reset">Reset all</button><button class="btn" data-act="discard">Discard</button><button class="btn pri" data-act="publish">Publish to all users</button></footer>' +
-      '<div class="toast" id="toast"></div></div></div>';
+    shadow.innerHTML = '<style>' + UI_CSS + '</style><div class="wrap"><div class="panel" role="dialog" aria-label="Ultimate Customizer">' +
+      '<header><h3>Ultimate Customizer</h3><span class="status" id="st"></span><button class="x" data-act="close" title="Close">&times;</button></header>' +
+      '<div id="main" style="display:flex;flex-direction:column;flex:1;min-height:0"></div><div class="toast" id="toast"></div></div></div>';
     document.body.appendChild(host);
     const panel = shadow.querySelector('.panel');
-    panel.addEventListener('keydown', (e) => e.stopPropagation());
-    panel.addEventListener('keyup', (e) => e.stopPropagation());
+    ['keydown', 'keyup', 'keypress'].forEach((ev) => panel.addEventListener(ev, (e) => e.stopPropagation()));
     shadow.addEventListener('click', onClick);
     shadow.addEventListener('input', onInput);
     shadow.addEventListener('change', onChange);
+    shadow.addEventListener('focusout', onBlur);
     makeDraggable(panel, shadow.querySelector('header'));
-    render();
+    if (view === 'connect') renderConnect('start');
+    else startEditor();
+  }
+
+  function startEditor() {
+    view = 'editor';
+    UC.editing = true;
+    draft = E.clone(UC.baked);
+    opened = E.clone(UC.baked);
+    renderShell();
+    // Pull the latest saved version in case another admin changed it.
+    fetch(UC.api('/c/' + UC.license.key + '/v.json?have=0'), { credentials: 'omit' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j || !j.config || !host || j.v <= UC.version) return;
+        UC.version = j.v; UC.baked = E.sanitize(j.config);
+        draft = E.clone(UC.baked); opened = E.clone(UC.baked);
+        UC.render(draft); render();
+      }).catch(() => {});
+  }
+
+  function closeUI() {
+    if (!host) return;
+    clearInterval(connectTimer);
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; save(); }
+    hideLoginMock();
+    host.remove(); host = shadow = null;
+    UC.editing = false;
   }
 
   function makeDraggable(panel, handle) {
@@ -202,8 +230,7 @@ textarea{width:100%;height:150px;font-family:ui-monospace,monospace;font-size:11
       const r = panel.getBoundingClientRect();
       on = true; sx = e.clientX; sy = e.clientY; ox = r.left; oy = r.top;
       panel.style.right = 'auto'; panel.style.bottom = 'auto';
-      panel.style.left = ox + 'px'; panel.style.top = oy + 'px';
-      panel.style.height = r.height + 'px';
+      panel.style.left = ox + 'px'; panel.style.top = oy + 'px'; panel.style.height = r.height + 'px';
       e.preventDefault();
     });
     window.addEventListener('mousemove', (e) => {
@@ -214,65 +241,166 @@ textarea{width:100%;height:150px;font-family:ui-monospace,monospace;font-size:11
     window.addEventListener('mouseup', () => { on = false; });
   }
 
-  function closeUI(silent) {
-    if (!host) return;
-    host.remove(); host = shadow = null;
-    if (!silent) UC.preview(UC.baked); // drop any unpublished preview
-  }
   function toast(msg) {
     const t = shadow && shadow.getElementById('toast');
     if (!t) return;
     t.textContent = msg; t.classList.add('show');
     clearTimeout(toast.t);
-    toast.t = setTimeout(() => t.classList.remove('show'), 2800);
+    toast.t = setTimeout(() => t.classList.remove('show'), 2600);
   }
-  function live() {
-    dirty = true;
-    UC.preview(draft).catch(() => toast('Could not load the theme for preview'));
-    applyNames();
+  function status(text, cls) {
+    const s = shadow && shadow.getElementById('st');
+    if (s) { s.textContent = text; s.className = 'status ' + (cls || ''); }
+  }
+
+  /* ------------------------------------------------------------------
+     5. CONNECT FLOW
+     The script makes a random pairing id and opens our app in a popup.
+     An admin of THIS agency approves it after signing in with HighLevel;
+     the script then claims it, which connects this domain and returns an
+     editor token for this browser.
+  ------------------------------------------------------------------ */
+  function randomId() {
+    const a = new Uint8Array(24);
+    crypto.getRandomValues(a);
+    return btoa(String.fromCharCode.apply(null, a)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function renderConnect(stage, url) {
+    const main = shadow.getElementById('main');
+    const domain = esc(location.hostname);
+    if (stage === 'start') {
+      main.innerHTML = '<div class="connect"><h2>Connect this CRM</h2><p>To unlock Ultimate Customizer on <b>' + domain + '</b>, confirm it with the HighLevel agency account that purchased the app.' +
+        (UC.mode !== 'setup' ? ' This also lets this browser save theme changes.' : '') + '</p>' +
+        '<div class="btns" style="justify-content:center;margin-top:18px"><button class="btn pri" data-act="connect">Connect with HighLevel</button></div>' +
+        '<p class="note">A small window opens. Sign in if asked, then click <b>Approve</b>.</p></div>';
+    } else if (stage === 'wait') {
+      main.innerHTML = '<div class="connect"><h2>Waiting for approval…</h2><div class="spin"></div><p>Approve the connection in the window that opened.</p>' +
+        '<p class="note">Popup blocked? <a href="' + esc(url) + '" target="_blank" rel="noopener">Open it here</a>.</p>' +
+        '<div class="btns" style="justify-content:center"><button class="btn sm" data-act="cancelConnect">Cancel</button></div></div>';
+    } else if (stage === 'done') {
+      main.innerHTML = '<div class="connect"><h2>Connected ✓</h2><p>' + domain + ' is now connected to your license.</p>' +
+        (UC.mode === 'setup' ? '<p>Reloading to load your theme…</p>' : '') + '</div>';
+    }
+  }
+  function startConnect() {
+    const pair = randomId();
+    const url = UC.api('/connect?key=' + encodeURIComponent(UC.license.key) + '&pair=' + encodeURIComponent(pair));
+    window.open(url, 'uc-connect', 'width=540,height=760');
+    renderConnect('wait', url);
+    const started = Date.now();
+    clearInterval(connectTimer);
+    connectTimer = setInterval(() => {
+      if (!host || Date.now() - started > 10 * 60e3) { clearInterval(connectTimer); if (host) renderConnect('start'); return; }
+      fetch(UC.api('/api/connect/claim'), {
+        method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: UC.license.key, pair })
+      }).then((r) => (r.status === 200 ? r.json() : null)).then((j) => {
+        if (!j || !j.token || !host) return;
+        clearInterval(connectTimer);
+        UC.editorToken(j.token);
+        renderConnect('done');
+        if (UC.mode === 'setup') setTimeout(() => location.reload(), 1200);
+        else setTimeout(() => { if (host) startEditor(); }, 900);
+      }).catch(() => {});
+    }, 2000);
+  }
+
+  /* ------------------------------------------------------------------
+     6. EDITOR
+  ------------------------------------------------------------------ */
+  function renderShell() {
+    const main = shadow.getElementById('main');
+    main.innerHTML = '<div class="tabs">' + TABS.map((t) => '<button class="tab" data-tab="' + t[0] + '">' + t[1] + '</button>').join('') + '</div>' +
+      '<div class="search"><input type="text" class="full" id="q" placeholder="Search all ' + R.ORDER.length + ' settings…" value="' + esc(query) + '"></div>' +
+      '<div class="body" id="body"></div>' +
+      '<footer><span class="note">Changes save automatically and go live for every user.</span><button class="btn sm" data-act="undoSession">Undo session</button><button class="btn sm pri" data-act="close">Done</button></footer>';
+    status(UC.editorToken() ? 'All changes saved' : '', 'ok');
+    render();
+  }
+
+  function render() {
+    if (!shadow || view !== 'editor') return;
+    const body = shadow.getElementById('body');
+    const st = body.scrollTop;
+    shadow.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', !query && t.dataset.tab === tab));
+    if (query) body.innerHTML = renderSearch();
+    else if (tab === 'themes') body.innerHTML = renderThemes();
+    else if (tab === 'menu') body.innerHTML = renderMenu();
+    else if (tab === 'advanced') body.innerHTML = renderAdvanced();
+    else body.innerHTML = renderGroup(tab);
+    body.scrollTop = st;
     syncAccent();
+    if (!query && tab === 'menu') bindDnD(body);
   }
+
   function syncAccent() {
     const p = shadow && shadow.querySelector('.panel');
     if (!p) return;
-    p.style.setProperty('--navy', draft.colors.navy);
-    p.style.setProperty('--accent', draft.colors.cyan);
-    p.style.setProperty('--gold', draft.colors.gold);
+    const r = E.resolve(draft);
+    p.style.setProperty('--accent', r.primary);
+    p.style.setProperty('--gold', r.highlight);
   }
 
-  /* ---------- tabs ---------- */
-  function tabColors() {
-    const c = draft.colors;
-    const pre = Object.keys(PRESETS).map((n) => {
-      const p = PRESETS[n];
-      return '<button class="preset" data-preset="' + esc(n) + '"><span style="background:linear-gradient(90deg,' + p.navy + ' 0 34%,' + p.cyan + ' 34% 67%,' + p.gold + ' 67%)"></span>' + esc(n) + '</button>';
+  /* ---------- controls ---------- */
+  function control(id, showGroup) {
+    const t = R.TOKENS[id];
+    const r = E.resolve(draft);
+    const val = r[id];
+    const set = Object.prototype.hasOwnProperty.call(draft.values, id);
+    let input = '';
+    switch (t.type) {
+      case 'color':
+        input = '<input type="color" data-k="' + id + '" value="' + esc(val) + '"><input type="text" class="hex" data-hex="' + id + '" value="' + esc(val) + '" maxlength="7">';
+        break;
+      case 'num':
+        input = '<input type="range" data-k="' + id + '" min="' + t.min + '" max="' + t.max + '" step="' + t.step + '" value="' + val + '">' +
+          '<input type="number" class="num" data-k="' + id + '" min="' + t.min + '" max="' + t.max + '" step="' + t.step + '" value="' + val + '">';
+        break;
+      case 'select':
+        input = '<select data-k="' + id + '">' + t.options.map((o) => '<option value="' + esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
+        break;
+      case 'bool':
+        input = '<input type="checkbox" data-k="' + id + '"' + (val ? ' checked' : '') + '>';
+        break;
+      case 'font':
+        input = '<input type="text" class="txt" list="uc-fonts" data-k="' + id + '" value="' + esc(set ? draft.values[id] : (t.def || '')) + '" placeholder="' + esc(t.def || 'Same as body font') + '">';
+        break;
+      default:
+        input = '<input type="text" class="txt" data-k="' + id + '" maxlength="' + (t.type === 'url' ? 500 : (t.max || 100)) + '" value="' + esc(val || '') + '" placeholder="' + (t.type === 'url' ? 'https://…' : '') + '">';
+    }
+    const grp = showGroup ? '<span class="grp">' + esc(R.GROUPS.find((g) => g.id === t.group).label + ' › ' + t.sub) + '</span>' : '';
+    return '<div class="ctl' + (set ? ' set' : '') + '" data-ctl="' + id + '"><div class="lbl"><b>' + esc(t.label) + '</b>' +
+      (t.hint || grp ? '<small>' + grp + (t.hint && grp ? ' · ' : '') + esc(t.hint || '') + '</small>' : '') + '</div>' +
+      '<div class="in">' + input + '<button class="rs" data-reset="' + id + '" title="Reset to theme default">↺</button></div></div>';
+  }
+  const fontList = () => '<datalist id="uc-fonts">' + R.FONTS.map((f) => '<option value="' + esc(f) + '">').join('') + '</datalist>';
+
+  function renderGroup(gid) {
+    const g = R.GROUPS.find((x) => x.id === gid);
+    let html = gid === 'login' ? '<div class="btns"><button class="btn" data-act="loginPreview">' + (mockOpen() ? 'Hide' : 'Show') + ' login page preview</button></div>' : '';
+    html += g.subs.map((sub, i) => {
+      const ids = R.ORDER.filter((id) => R.TOKENS[id].group === gid && R.TOKENS[id].sub === sub);
+      return '<details' + (i < 2 || g.subs.length <= 2 ? ' open' : '') + '><summary>' + esc(sub) + '</summary><div class="sec">' + ids.map((id) => control(id)).join('') + '</div></details>';
     }).join('');
-    const rows = COLOR_META.map((m) =>
-      '<div class="crow"><div><b>' + m.label + '</b><small>' + m.hint + '</small></div><div class="cin">' +
-      '<input type="color" data-ck="' + m.key + '" value="' + c[m.key] + '">' +
-      '<input type="text" data-ct="' + m.key + '" value="' + c[m.key] + '" maxlength="7"></div></div>').join('');
-    return '<h4>Presets</h4><div class="presets">' + pre + '</div><h4>Brand colors</h4>' + rows +
-      '<p class="note">Every color in the theme (including translucent shades and glows) and both network animations are re-derived from these six values.</p>';
+    return html + fontList();
   }
 
-  function tabFx() {
-    const f = draft.fx;
-    const chk = (k, label, hint) => '<div class="frow"><div>' + label + (hint ? '<small>' + hint + '</small>' : '') + '</div><input type="checkbox" data-fx="' + k + '"' + (f[k] ? ' checked' : '') + '></div>';
-    const rng = (k, label, min, max, st) => '<div class="frow"><div>' + label + '</div><div><input type="range" data-fxr="' + k + '" min="' + min + '" max="' + max + '" step="' + st + '" value="' + f[k] + '"> <span class="rv">' + f[k] + '</span></div></div>';
-    return '<h4>Animations</h4>' +
-      chk('network', 'Sidebar network', 'Particle web behind the menu') +
-      rng('networkOpacity', 'Network intensity', 0, 1, 0.05) +
-      rng('networkDensity', 'Network density', 0.2, 2, 0.1) +
-      chk('loginNetwork', 'Login page network', 'Animated web behind the login logo') +
-      chk('ripple', 'Click ripple', 'Water-drop effect on every click') +
-      chk('subaccountLogo', 'Sub-account logo in sidebar', 'Shows each sub-account’s own logo') +
-      chk('noMotion', 'Reduce motion', 'Turns off banner pan, mesh pan and hover transitions') +
-      '<h4>Look & feel</h4>' +
-      rng('blur', 'Glass blur', 0, 2, 0.1) +
-      rng('radius', 'Corner roundness', 0, 2, 0.1) +
-      chk('noGlow', 'Disable text glow', 'Removes neon text-shadow everywhere') +
-      '<div class="frow"><div>Font family<small>Loaded from Google Fonts when needed</small></div><select data-fxs="font">' +
-      E.FONTS.map((n) => '<option' + (f.font === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></div>';
+  function renderSearch() {
+    const q = query.toLowerCase();
+    const ids = R.ORDER.filter((id) => {
+      const t = R.TOKENS[id];
+      return (t.label + ' ' + t.sub + ' ' + (t.hint || '') + ' ' + id).toLowerCase().indexOf(q) !== -1;
+    });
+    return ids.length ? ids.slice(0, 60).map((id) => control(id, true)).join('') + fontList() : '<div class="empty">No settings match “' + esc(query) + '”.</div>';
+  }
+
+  function renderThemes() {
+    return '<h4>Prebuilt themes</h4><div class="themes">' + R.THEMES.map((th) => {
+      const p = E.resolve({ values: th.p });
+      return '<button class="theme' + (draft.theme === th.id ? ' on' : '') + '" data-theme="' + th.id + '"><i>' +
+        [p.base, p.surfaceAlt, p.secondary, p.primary, p.highlight].map((c) => '<span style="background:' + c + '"></span>').join('') +
+        '</i>' + esc(th.name) + '</button>';
+    }).join('') + '</div><p class="note">Picking a theme sets the whole palette and every section color. Your layout, effects, login text and menu settings are kept. Fine-tune anything afterwards in the other tabs.</p>';
   }
 
   function sidebarItems() {
@@ -286,56 +414,105 @@ textarea{width:100%;height:150px;font-family:ui-monospace,monospace;font-size:11
     return items;
   }
 
-  function tabSidebar() {
-    const view = currentView(), sb = draft.sidebar[view];
+  function renderMenu() {
+    const v = currentView(), sb = draft.sidebar[v];
     const items = sidebarItems();
-    let html = '<h4>' + (view === 'agency' ? 'Agency view menu' : 'Sub-account view menu') + '</h4>';
-    if (!items.length) {
-      html += '<p class="note">The sidebar was not found on this screen. Close this window, wait for the page to load and open it again.</p>';
-    } else {
+    let html = '<h4>' + (v === 'agency' ? 'Agency view menu' : 'Sub-account view menu') + '</h4>';
+    if (!items.length) html += '<p class="note">The sidebar was not found on this screen. Close this window, wait for the page to load and open it again.</p>';
+    else {
       html += items.map((it) => {
         const hidden = sb.hidden.indexOf(it.key) !== -1;
-        return '<div class="row' + (hidden ? ' hid' : '') + '" data-key="' + esc(it.key) + '">' +
-          '<span class="grip" title="Drag to reorder">&#8942;&#8942;</span>' +
+        return '<div class="row' + (hidden ? ' hid' : '') + '" data-key="' + esc(it.key) + '"><span class="grip" title="Drag to reorder">&#8942;&#8942;</span>' +
           '<input type="checkbox" data-vis="' + esc(it.key) + '" title="Show / hide"' + (hidden ? '' : ' checked') + '>' +
           '<div class="names"><input type="text" class="name" data-nm="' + esc(it.key) + '" value="' + esc(sb.names[it.key] || '') + '" placeholder="' + esc(it.orig) + '"><small>Original: ' + esc(it.orig) + '</small></div>' +
           '<button class="mv" data-up="' + esc(it.key) + '">&#9650;</button><button class="mv" data-down="' + esc(it.key) + '">&#9660;</button></div>';
-      }).join('') +
-      '<div class="btns"><button class="btn sm" data-act="resetSidebar">Reset this menu</button></div>';
+      }).join('') + '<div class="btns"><button class="btn sm" data-act="resetSidebar">Reset this menu</button></div>';
     }
-    html += '<h4>Always hide (CSS selectors)</h4>' +
-      '<textarea id="hidesel" spellcheck="false" placeholder="#sb_app-media&#10;#sb_memberships">' + esc(draft.hideSelectors.join('\n')) + '</textarea>' +
-      '<div class="btns"><button class="btn sm" data-act="applyHide">Apply selectors</button></div>' +
-      '<p class="note">You are editing the <b>' + (view === 'agency' ? 'Agency' : 'Sub-account') + '</b> menu. Switch views and reopen this window to edit the other one. Divider lines are hidden once you reorder. Empty name = original name.</p>';
-    return html;
+    return html + '<h4>Always hide (CSS selectors)</h4><textarea id="hidesel" spellcheck="false" placeholder="#sb_app-media&#10;#sb_memberships">' + esc(draft.hideSelectors.join('\n')) + '</textarea>' +
+      '<p class="note">One selector per line; applied when you click outside the box. You are editing the <b>' + (v === 'agency' ? 'Agency' : 'Sub-account') + '</b> menu — switch views and reopen to edit the other. Empty name = original name.</p>';
   }
 
-  function tabPublish() {
-    const pk = getPk();
-    return '<h4>Publish key</h4>' +
-      '<p class="note">Publishing needs the publish key from your <a href="' + esc(UC.license.base) + '/dashboard" target="_blank" rel="noopener">Ultimate Customizer dashboard</a>. It is stored only in this browser.</p>' +
-      '<input type="password" class="full" id="pk" placeholder="uc_pub_…" value="' + esc(pk) + '">' +
-      '<div class="btns"><button class="btn sm" data-act="savePk">Save key</button>' + (pk ? '<button class="btn sm" data-act="forgetPk">Forget key</button>' : '') + '</div>' +
-      '<h4>Backup / restore</h4>' +
-      '<textarea id="json" spellcheck="false">' + esc(JSON.stringify(draft, null, 2)) + '</textarea>' +
-      '<div class="btns"><button class="btn sm" data-act="copyJson">Copy JSON</button><button class="btn sm" data-act="applyJson">Apply pasted JSON</button></div>' +
-      '<p class="note">Publish regenerates your agency’s theme CSS and script on the server. Every user picks it up on their next page load.</p>';
+  function renderAdvanced() {
+    return '<h4>Theme sections</h4><p class="note">Switch off any part of the theme to keep HighLevel’s original look there.</p>' +
+      R.SECTIONS.map((s) => '<div class="ctl"><div class="lbl"><b>' + esc(s[1]) + '</b></div><div class="in"><input type="checkbox" data-sec="' + s[0] + '"' + (draft.sections[s[0]] === false ? '' : ' checked') + '></div></div>').join('') +
+      '<h4>Custom CSS</h4><textarea id="customcss" spellcheck="false" placeholder="/* added after the theme */">' + esc(draft.customCss) + '</textarea>' +
+      '<p class="note">Applied when you click outside the box.</p>' +
+      '<h4>Backup / restore</h4><div class="btns"><button class="btn sm" data-act="copyJson">Copy settings JSON</button><button class="btn sm" data-act="pasteJson">Restore from JSON…</button>' +
+      '<button class="btn sm" data-act="resetAll">Reset everything</button></div>' +
+      '<h4>This browser</h4><div class="btns"><button class="btn sm" data-act="forget">Disconnect this browser</button></div>' +
+      '<p class="note">Licensed to ' + esc(UC.license.name || UC.license.companyId) + '. <a href="' + esc(UC.api('/docs')) + '" target="_blank" rel="noopener">Documentation</a> · <a href="' + esc(UC.api('/')) + '" target="_blank" rel="noopener">Support</a></p>';
   }
 
-  function render() {
-    if (!shadow) return;
-    const body = shadow.getElementById('body');
-    const st = body.scrollTop;
-    shadow.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === tab));
-    shadow.getElementById('vb').textContent = currentView() === 'agency' ? 'Agency view' : 'Sub-account view';
-    body.innerHTML = tab === 'colors' ? tabColors() : tab === 'fx' ? tabFx() : tab === 'sidebar' ? tabSidebar() : tabPublish();
-    body.scrollTop = st;
-    syncAccent();
-    if (tab === 'sidebar') bindDnD(body);
+  /* ---------- applying changes ---------- */
+  let paintRaf = 0;
+  function changed(rerender) {
+    draft.theme = draft.theme || 'custom';
+    if (!paintRaf) paintRaf = requestAnimationFrame(() => { paintRaf = 0; UC.render(draft).catch(() => status('Preview failed', 'err')); });
+    if (rerender) render(); else syncAccent();
+    scheduleSave();
+  }
+  function setValue(id, value) {
+    const t = R.TOKENS[id];
+    if (value === '' && t.def === '') delete draft.values[id];
+    else draft.values[id] = value;
+    draft = E.sanitize(draft);
+    const ctl = shadow.querySelector('[data-ctl="' + id + '"]');
+    if (ctl) ctl.classList.add('set');
+  }
+
+  function scheduleSave() {
+    status('Unsaved…');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { saveTimer = 0; save(); }, 700);
+  }
+  function save() {
+    if (saving) { pendingSave = true; return; }
+    if (!UC.editorToken()) { status('Not connected', 'err'); return; }
+    saving = true; status('Saving…');
+    UC.save(draft).then(() => { status('All changes saved', 'ok'); })
+      .catch((e) => {
+        status('Not saved', 'err');
+        if (e.status === 401) {
+          UC.editorToken('');
+          if (host) { view = 'connect'; renderConnect('start'); toast('This browser needs to reconnect'); }
+        }
+        else toast(e.message);
+      })
+      .then(() => { saving = false; if (pendingSave) { pendingSave = false; save(); } });
+  }
+
+  /* ---------- login page preview ---------- */
+  const MOCK_ID = 'uc-login-mock';
+  const mockOpen = () => !!document.getElementById(MOCK_ID);
+  function showLoginMock() {
+    if (mockOpen()) return;
+    const logoEl = document.querySelector('img.agency-logo');
+    const logo = logoEl && logoEl.src ? logoEl.src : 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="220" height="80"><text x="50%" y="55%" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="700" fill="#ffffff">YOUR LOGO</text></svg>');
+    const f = 'display:block;width:100%;box-sizing:border-box;margin:0 0 16px;font-size:14px';
+    const m = document.createElement('div');
+    m.id = MOCK_ID;
+    m.style.cssText = 'position:fixed;inset:0;z-index:2147482000;overflow:hidden';
+    m.innerHTML = '<div class="hl_login"><div class="hl_login--header"><div class="container-fluid"><img alt="Logo" src="' + esc(logo) + '"></div></div>' +
+      '<div class="hl_login--body"><div class="container-fluid"><div class="card"><div class="card-body">' +
+      '<div class="login-card-heading"><h2>Sign into your account</h2></div>' +
+      '<label class="hl-text-input-label" style="display:block;margin-bottom:6px">Email</label><input class="hl-text-input" style="' + f + '" placeholder="Your email address">' +
+      '<label class="hl-text-input-label" style="display:block;margin-bottom:6px">Password</label><input class="hl-text-input" type="password" style="' + f + '" value="password">' +
+      '<a class="forgot-password" style="display:block;text-align:right;margin-bottom:8px;cursor:pointer">Forgot password?</a>' +
+      '<button type="submit" class="hl-btn" style="display:block;width:100%;cursor:pointer">Sign in</button>' +
+      '<button id="wl_google_login_button" style="display:block;width:100%;margin-top:12px;padding:12px;cursor:pointer">Sign in with Google</button>' +
+      '</div></div></div></div></div>';
+    m.addEventListener('submit', (e) => e.preventDefault());
+    m.addEventListener('click', (e) => e.preventDefault());
+    document.body.appendChild(m);
+    if (UC.refreshEffects) UC.refreshEffects();
+  }
+  function hideLoginMock() {
+    const m = document.getElementById(MOCK_ID);
+    if (m) m.remove();
   }
 
   /* ---------- sidebar editing ---------- */
-  function commitOrder(keys) { draft.sidebar[currentView()].order = keys; live(); render(); }
+  function commitOrder(keys) { draft.sidebar[currentView()].order = keys; changed(true); }
   function moveBefore(from, to) {
     if (!from || from === to) return;
     const keys = sidebarItems().map((i) => i.key).filter((k) => k !== from);
@@ -360,35 +537,6 @@ textarea{width:100%;height:150px;font-family:ui-monospace,monospace;font-size:11
     });
   }
 
-  /* ---------- publish ---------- */
-  function getPk() { try { return localStorage.getItem(PK_LS) || ''; } catch (e) { return ''; } }
-  function setPk(v) { try { if (v) localStorage.setItem(PK_LS, v); else localStorage.removeItem(PK_LS); } catch (e) { /* ignore */ } }
-
-  function publish(btn) {
-    const pk = getPk();
-    if (!pk) { tab = 'publish'; render(); toast('Paste your publish key first'); return; }
-    if (busy) return;
-    busy = true; btn.disabled = true;
-    const cfg = E.sanitize(draft);
-    fetch(UC.license.base + '/api/publish', {
-      method: 'POST',
-      credentials: 'omit',
-      headers: { 'Content-Type': 'application/json', 'X-UC-Publish-Key': pk },
-      body: JSON.stringify({ key: UC.license.key, config: cfg })
-    }).then((r) => r.json().catch(() => ({})).then((j) => ({ ok: r.ok, status: r.status, j: j })))
-      .then((res) => {
-        if (!res.ok) {
-          toast(res.status === 401 ? 'Publish key rejected' : (res.j.error || 'Publish failed (' + res.status + ')'));
-          return;
-        }
-        draft = E.clone(cfg); dirty = false;
-        UC.published(cfg);
-        toast('Published. All users get it on their next page load.');
-      })
-      .catch(() => toast('Network error while publishing'))
-      .then(() => { busy = false; if (btn.isConnected) btn.disabled = false; });
-  }
-
   /* ---------- events ---------- */
   function copyText(txt, ok) {
     const done = () => toast(ok);
@@ -406,99 +554,132 @@ textarea{width:100%;height:150px;font-family:ui-monospace,monospace;font-size:11
   function onClick(e) {
     const t = e.target;
     const tabBtn = t.closest('[data-tab]');
-    if (tabBtn) { tab = tabBtn.dataset.tab; render(); return; }
-    const pre = t.closest('[data-preset]');
-    if (pre) { draft.colors = Object.assign({}, PRESETS[pre.dataset.preset]); live(); render(); return; }
+    if (tabBtn) {
+      tab = tabBtn.dataset.tab; query = '';
+      const q = shadow.getElementById('q'); if (q) q.value = '';
+      if (tab !== 'login') hideLoginMock();
+      render(); return;
+    }
+    const th = t.closest('[data-theme]');
+    if (th) { draft = E.applyTheme(draft, th.dataset.theme); changed(true); toast('Theme applied'); return; }
+    const rs = t.closest('[data-reset]');
+    if (rs) { delete draft.values[rs.dataset.reset]; changed(true); return; }
     const up = t.closest('[data-up]'); if (up) { step(up.dataset.up, -1); return; }
     const dn = t.closest('[data-down]'); if (dn) { step(dn.dataset.down, 1); return; }
     const a = t.closest('[data-act]');
     if (!a) return;
     switch (a.dataset.act) {
-      case 'close':
-      case 'discard':
-        if (dirty && !confirm('Discard unpublished changes?')) return;
-        closeUI(); break;
-      case 'publish': publish(a); break;
-      case 'reset':
-        if (!confirm('Reset colors, effects and sidebar to defaults? (Not live until you publish.)')) return;
-        draft = E.clone(E.DEFAULTS); live(); render(); break;
-      case 'resetSidebar':
-        draft.sidebar[currentView()] = { order: [], names: {}, hidden: [] }; live(); render(); break;
-      case 'applyHide':
-        draft.hideSelectors = shadow.getElementById('hidesel').value.split('\n').map((s) => s.trim()).filter(Boolean);
-        draft = E.sanitize(draft); live(); render(); toast('Selectors applied (preview)'); break;
-      case 'savePk': {
-        const v = shadow.getElementById('pk').value.trim();
-        setPk(v); render(); toast(v ? 'Publish key saved in this browser' : 'Key cleared'); break;
-      }
-      case 'forgetPk': setPk(''); render(); toast('Key removed from this browser'); break;
-      case 'copyJson': copyText(JSON.stringify(draft, null, 2), 'JSON copied'); break;
-      case 'applyJson':
-        try { draft = E.sanitize(JSON.parse(shadow.getElementById('json').value)); live(); render(); toast('JSON applied (preview)'); }
-        catch (x) { toast('Invalid JSON'); }
+      case 'close': closeUI(); break;
+      case 'connect': startConnect(); break;
+      case 'cancelConnect': clearInterval(connectTimer); renderConnect('start'); break;
+      case 'loginPreview': if (mockOpen()) hideLoginMock(); else showLoginMock(); render(); break;
+      case 'undoSession':
+        if (!confirm('Undo every change made since you opened the customizer?')) return;
+        draft = E.clone(opened); changed(true); break;
+      case 'resetAll':
+        if (!confirm('Reset all settings to the default IRVEX theme?')) return;
+        draft = E.clone(E.DEFAULTS); changed(true); break;
+      case 'resetSidebar': draft.sidebar[currentView()] = { order: [], names: {}, hidden: [] }; changed(true); break;
+      case 'copyJson': copyText(JSON.stringify(draft, null, 2), 'Settings copied'); break;
+      case 'pasteJson': {
+        const txt = prompt('Paste settings JSON');
+        if (!txt) return;
+        try { draft = E.sanitize(JSON.parse(txt)); changed(true); toast('Settings restored'); } catch (x) { toast('That is not valid JSON'); }
         break;
+      }
+      case 'forget':
+        if (!confirm('Disconnect this browser? You will need to approve it again to edit.')) return;
+        UC.editorToken(''); closeUI(); break;
     }
   }
 
-  let inputRaf = 0;
   function onInput(e) {
     const t = e.target;
-    if (t.dataset.ck) {
-      draft.colors[t.dataset.ck] = t.value;
-      const txt = shadow.querySelector('[data-ct="' + t.dataset.ck + '"]'); if (txt) txt.value = t.value;
-      if (!inputRaf) inputRaf = requestAnimationFrame(() => { inputRaf = 0; live(); });
-    } else if (t.dataset.fxr) {
-      draft.fx[t.dataset.fxr] = parseFloat(t.value);
-      t.parentElement.querySelector('.rv').textContent = t.value;
-      if (!inputRaf) inputRaf = requestAnimationFrame(() => { inputRaf = 0; live(); });
-    } else if (t.dataset.nm) {
+    if (t.id === 'q') { query = t.value.trim(); render(); const q = shadow.getElementById('q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); return; }
+    const id = t.dataset.k;
+    if (id) {
+      const tok = R.TOKENS[id];
+      if (tok.type === 'color') {
+        setValue(id, t.value);
+        const hx = shadow.querySelector('[data-hex="' + id + '"]'); if (hx) hx.value = t.value;
+        changed(false);
+      } else if (tok.type === 'num') {
+        if (t.value === '') return;
+        setValue(id, Number(t.value));
+        t.closest('.in').querySelectorAll('[data-k]').forEach((x) => { if (x !== t) x.value = t.value; });
+        changed(false);
+      } else if (tok.type === 'text') {
+        setValue(id, t.value); changed(false);
+      }
+      return;
+    }
+    if (t.dataset.nm) {
       const sb = draft.sidebar[currentView()], v = t.value.trim();
       if (v) sb.names[t.dataset.nm] = v.slice(0, 60); else delete sb.names[t.dataset.nm];
-      live();
+      changed(false);
     }
   }
 
   function onChange(e) {
     const t = e.target;
-    if (t.dataset.ct) {
+    if (t.dataset.hex) {
       let v = t.value.trim(); if (v[0] !== '#') v = '#' + v;
-      if (!E.isHex(v)) { t.value = draft.colors[t.dataset.ct]; return; }
-      v = v.toLowerCase();
-      draft.colors[t.dataset.ct] = v;
-      const c = shadow.querySelector('[data-ck="' + t.dataset.ct + '"]'); if (c) c.value = v;
-      t.value = v; live();
-    } else if (t.dataset.fx) {
-      draft.fx[t.dataset.fx] = t.checked; live();
-    } else if (t.dataset.fxs) {
-      draft.fx[t.dataset.fxs] = t.value; live();
-    } else if (t.dataset.vis) {
+      if (!E.isHex(v)) { t.value = E.resolve(draft)[t.dataset.hex]; return; }
+      setValue(t.dataset.hex, v.toLowerCase()); changed(true); return;
+    }
+    const id = t.dataset.k;
+    if (id) {
+      const tok = R.TOKENS[id];
+      if (tok.type === 'select') { setValue(id, t.value); changed(true); }
+      else if (tok.type === 'bool') { setValue(id, t.checked); changed(true); }
+      else if (tok.type === 'url' || tok.type === 'font') {
+        const before = JSON.stringify(draft.values[id]);
+        setValue(id, t.value.trim());
+        if (JSON.stringify(draft.values[id]) === before && t.value.trim()) toast(tok.type === 'url' ? 'Use a full https:// link' : 'Letters, numbers and spaces only');
+        changed(true);
+      }
+      return;
+    }
+    if (t.dataset.sec) {
+      if (t.checked) delete draft.sections[t.dataset.sec]; else draft.sections[t.dataset.sec] = false;
+      changed(false); return;
+    }
+    if (t.dataset.vis) {
       const sb = draft.sidebar[currentView()], i = sb.hidden.indexOf(t.dataset.vis);
       if (t.checked && i >= 0) sb.hidden.splice(i, 1);
       if (!t.checked && i < 0) sb.hidden.push(t.dataset.vis);
-      live(); render();
+      changed(true);
+    }
+  }
+
+  function onBlur(e) {
+    const t = e.target;
+    if (t.id === 'hidesel') {
+      draft.hideSelectors = t.value.split('\n').map((s) => s.trim()).filter(Boolean);
+      draft = E.sanitize(draft); changed(false);
+    } else if (t.id === 'customcss') {
+      if (t.value === draft.customCss) return;
+      draft.customCss = t.value; draft = E.sanitize(draft); changed(false);
     }
   }
 
   /* ------------------------------------------------------------------
-     5. BOOT
+     7. BOOT
   ------------------------------------------------------------------ */
-  applyNames();
+  if (UC.mode !== 'setup') applyNames();
   const iv = setInterval(() => {
     if (UC.killed) { clearInterval(iv); return; }
     try { ensureMenuItem(); } catch (e) { /* never break GHL */ }
   }, 600);
 
   window.IRVEX_UC = {
-    open: openUI,
+    open: () => openUI(UC.mode === 'setup' || !UC.editorToken() ? 'connect' : 'editor'),
     debug: function () {
       const email = UC.currentEmail();
       console.table({
-        email: email,
-        user: JSON.stringify(UC.users[email] || null),
-        isAdmin: isAdmin(),
-        licensedCompany: UC.license.companyId,
-        view: currentView(),
-        killed: UC.killed
+        mode: UC.mode, live: UC.live, company: UC.company, licensedCompany: UC.license.companyId,
+        email, user: JSON.stringify(UC.users[email] || null), isAdmin: isAdmin(),
+        editorConnected: !!UC.editorToken(), version: UC.version, view: currentView(), killed: UC.killed
       });
     }
   };

@@ -1,15 +1,35 @@
 'use strict';
-/* Install lifecycle + license decisions. One record per agency (companyId). */
+/* =====================================================================
+   LICENSING - one record per agency (companyId)
+
+   How a purchase stays locked to one agency:
+   1. License gate     assets are only served while the app is installed
+                       (OAuth / webhooks) and not suspended by you.
+   2. Domain binding   full CSS/JS is only served to domains the agency has
+                       connected. Connecting a domain needs an admin of THAT
+                       agency to approve it after signing in with HighLevel,
+                       and the domain is taken from the browser's Origin header.
+   3. Runtime check    the script reads the logged-in user's companyId from
+                       HighLevel's own API responses and shuts itself off if it
+                       belongs to another agency.
+   4. Monitoring       every unknown domain that requests the files is logged
+                       ("blocked attempts") in the Super Admin panel.
+   ===================================================================== */
 const engine = require('../shared/theme-engine');
-const { randomToken, sha256, safeEqual } = require('./security');
+const { randomToken } = require('./security');
 
 const COMPANY_RE = /^[A-Za-z0-9_-]{6,64}$/;
-const HOST_RE = /^(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+$/;
-const MAX_SEEN_HOSTS = 25;
+const HOST_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+const PAIR_RE = /^[A-Za-z0-9_-]{20,64}$/;
+// Hosts every HighLevel agency shares: binding them cannot tell agencies apart,
+// so there the theme only loads after the runtime company check passes.
+const SHARED_HOSTS = ['app.gohighlevel.com', 'app.leadconnectorhq.com', 'app.msgsndr.com'];
+const MAX_SEEN = 25;
+const EDITOR_TTL = 30 * 24 * 3600e3;
+const PAIR_TTL = 10 * 60e3;
 
 function createLicensing(store, ghl, sec) {
   const newAssetKey = () => 'k_' + randomToken(18);
-  const newPublishKey = () => 'uc_pub_' + randomToken(24);
 
   function blank(companyId) {
     const now = new Date().toISOString();
@@ -17,14 +37,15 @@ function createLicensing(store, ghl, sec) {
       companyId,
       name: '',
       key: newAssetKey(),          // appears in the CSS/JS URLs
-      publishKeyHash: null,        // sha256 of the publish key (shown once)
       installed: false,            // app installed in GHL (OAuth / webhook)
-      suspended: false,            // switched off by you in the admin panel
+      suspended: false,            // switched off in the Super Admin panel
       source: 'oauth',
       config: engine.sanitize({}),
       configVersion: 1,
-      allowedHosts: [],
-      seenHosts: {},
+      boundHosts: [],              // domains approved by the agency
+      seenHosts: {},               // bound domains -> last seen
+      blockedHosts: {},            // unknown domains -> { n, last }
+      editorEpoch: 1,              // bump to revoke every editor token
       tokens: null,                // encrypted { access, refresh }
       tokenExpiresAt: null,
       scope: '',
@@ -37,14 +58,29 @@ function createLicensing(store, ghl, sec) {
     };
   }
 
-  const isLicensed = (inst) => !!(inst && inst.installed && !inst.suspended);
+  // Older records may miss newer fields.
+  function normalize(inst) {
+    if (!inst) return inst;
+    inst.boundHosts = inst.boundHosts || inst.allowedHosts || [];
+    inst.seenHosts = inst.seenHosts || {};
+    inst.blockedHosts = inst.blockedHosts || {};
+    inst.editorEpoch = inst.editorEpoch || 1;
+    if (!inst.config || inst.config.v !== 2) inst.config = engine.sanitize(inst.config && inst.config.v === 2 ? inst.config : {});
+    delete inst.allowedHosts; delete inst.publishKeyHash;
+    return inst;
+  }
+  const get = async (companyId) => normalize(await store.get(companyId));
+  const byKey = async (key) => normalize(await store.byKey(key));
+  const list = async () => (await store.list()).map(normalize);
 
+  const isLicensed = (inst) => !!(inst && inst.installed && !inst.suspended);
   function statusOf(inst) {
     if (!inst) return 'not_installed';
     if (inst.suspended) return 'suspended';
     return inst.installed ? 'active' : 'uninstalled';
   }
 
+  /* ---------------- tokens from HighLevel ---------------- */
   function storeTokens(inst, t) {
     inst.tokens = sec.encrypt(JSON.stringify({ access: t.access_token, refresh: t.refresh_token }));
     inst.tokenExpiresAt = t.expires_in ? new Date(Date.now() + t.expires_in * 1000).toISOString() : null;
@@ -55,10 +91,9 @@ function createLicensing(store, ghl, sec) {
     return raw ? JSON.parse(raw) : null;
   }
 
-  // OAuth callback: create or re-activate the agency.
   async function installFromOAuth(code) {
     const t = await ghl.exchangeCode(code);
-    let inst = await store.get(t.companyId);
+    let inst = await get(t.companyId);
     const isNew = !inst;
     if (!inst) inst = blank(t.companyId);
     storeTokens(inst, t);
@@ -70,32 +105,24 @@ function createLicensing(store, ghl, sec) {
       const c = await ghl.getCompany(t.access_token, t.companyId);
       if (c && c.name) inst.name = String(c.name).slice(0, 120);
     } catch (e) { /* scope missing or API down: name stays empty */ }
-    let publishKey = null;
-    if (!inst.publishKeyHash) { publishKey = newPublishKey(); inst.publishKeyHash = sha256(publishKey); }
     await store.put(inst);
-    await store.log(inst.companyId, isNew ? 'install' : 'reauthorize', 'via OAuth');
-    return { inst, publishKey };
+    await store.log(inst.companyId, isNew ? 'install' : 'sign_in', 'via HighLevel OAuth');
+    return inst;
   }
 
   async function addManual(companyId, name) {
     if (!COMPANY_RE.test(companyId)) throw new Error('Invalid company ID');
-    let inst = await store.get(companyId);
-    let publishKey = null;
-    if (!inst) {
-      inst = blank(companyId);
-      inst.source = 'manual';
-      publishKey = newPublishKey();
-      inst.publishKeyHash = sha256(publishKey);
-    }
+    let inst = await get(companyId);
+    if (!inst) { inst = blank(companyId); inst.source = 'manual'; }
     inst.installed = true;
     if (name) inst.name = String(name).slice(0, 120);
     await store.put(inst);
     await store.log(companyId, 'manual_add', name || '');
-    return { inst, publishKey };
+    return inst;
   }
 
   /* Confirm the app is still installed by refreshing the agency token.
-     invalid_grant / 401 => GHL revoked it => uninstalled. */
+     invalid_grant / 401 => HighLevel revoked it => uninstalled. */
   async function verify(inst) {
     const tokens = readTokens(inst);
     if (!tokens || !tokens.refresh) {
@@ -115,12 +142,8 @@ function createLicensing(store, ghl, sec) {
       const body = e.body && typeof e.body === 'object' ? e.body : {};
       const revoked = e.status === 401 || e.status === 403 ||
         (e.status === 400 && /invalid_grant|unauthorized|revoked/i.test(String(body.error || '') + String(body.error_description || '') + String(body.message || '')));
-      if (revoked) {
-        await markUninstalled(inst, 'token revoked');
-        result = 'revoked: uninstalled';
-      } else {
-        result = 'error: ' + e.message;
-      }
+      if (revoked) { await markUninstalled(inst, 'token revoked'); result = 'revoked: uninstalled'; }
+      else result = 'error: ' + e.message;
     }
     inst.lastVerifiedAt = new Date().toISOString();
     inst.lastVerifyResult = result;
@@ -136,58 +159,128 @@ function createLicensing(store, ghl, sec) {
     await store.log(inst.companyId, 'uninstall', why || '');
   }
 
-  async function rotatePublishKey(inst) {
-    const key = newPublishKey();
-    inst.publishKeyHash = sha256(key);
-    await store.put(inst);
-    await store.log(inst.companyId, 'publish_key_rotated');
-    return key;
-  }
   async function rotateAssetKey(inst) {
     inst.key = newAssetKey();
     await store.put(inst);
     await store.log(inst.companyId, 'asset_key_rotated');
     return inst.key;
   }
-  const checkPublishKey = (inst, key) => !!(inst && inst.publishKeyHash && typeof key === 'string' && safeEqual(sha256(key), inst.publishKeyHash));
 
   async function saveConfig(inst, cfg, who) {
     inst.config = engine.sanitize(cfg);
     inst.configVersion = (inst.configVersion || 1) + 1;
     await store.put(inst);
-    await store.log(inst.companyId, 'config_saved', who || '');
+    if (who) await store.log(inst.companyId, 'config_saved', who);
     return inst.config;
   }
 
-  function parseHosts(text) {
-    return String(text || '').split(/[\s,]+/).map((h) => h.trim().toLowerCase()
-      .replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, ''))
-      .filter((h) => HOST_RE.test(h)).slice(0, 20);
+  /* ---------------- domains ---------------- */
+  const cleanHost = (h) => String(h || '').trim().toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/[/?#].*$/, '').replace(/:\d+$/, '');
+  const validHost = (h) => HOST_RE.test(h) && h.length <= 253;
+  const isShared = (h) => SHARED_HOSTS.indexOf(h) !== -1;
+  const isBound = (inst, host) => !!host && inst.boundHosts.indexOf(host) !== -1;
+
+  async function bindHost(inst, host, how) {
+    host = cleanHost(host);
+    if (!validHost(host)) throw new Error('Invalid domain');
+    if (inst.boundHosts.indexOf(host) === -1) {
+      if (inst.boundHosts.length >= 20) throw new Error('Too many domains (20 max)');
+      inst.boundHosts.push(host);
+      delete inst.blockedHosts[host];
+      await store.put(inst);
+      await store.log(inst.companyId, 'domain_connected', host + (how ? ' (' + how + ')' : ''));
+    }
+    return host;
+  }
+  async function unbindHost(inst, host, who) {
+    const i = inst.boundHosts.indexOf(host);
+    if (i === -1) return;
+    inst.boundHosts.splice(i, 1);
+    await store.put(inst);
+    await store.log(inst.companyId, 'domain_removed', host + (who ? ' by ' + who : ''));
   }
 
-  function hostAllowed(inst, host) {
-    if (!inst.allowedHosts || !inst.allowedHosts.length || !host) return true;
-    return inst.allowedHosts.some((h) => h === host || (h.startsWith('*.') && (host === h.slice(2) || host.endsWith(h.slice(1)))));
-  }
-
-  // Record where the assets are used (visible in the admin panel).
-  async function noteHost(inst, host) {
-    if (!host || !/^[a-z0-9.-]{3,253}$/.test(host)) return;
+  // Bookkeeping for the Super Admin panel; writes at most hourly per host.
+  async function noteRequest(inst, host, bound) {
+    if (!host || !validHost(host)) return;
     const now = new Date().toISOString();
-    const prev = inst.seenHosts[host];
-    if (prev && Date.now() - Date.parse(prev) < 3600e3) return; // write at most hourly per host
-    inst.seenHosts[host] = now;
-    const hosts = Object.keys(inst.seenHosts);
-    if (hosts.length > MAX_SEEN_HOSTS) {
-      hosts.sort((a, b) => inst.seenHosts[a].localeCompare(inst.seenHosts[b]));
-      delete inst.seenHosts[hosts[0]];
+    if (bound) {
+      const prev = inst.seenHosts[host];
+      if (prev && Date.now() - Date.parse(prev) < 3600e3) return;
+      inst.seenHosts[host] = now;
+      trim(inst.seenHosts, (v) => v);
+    } else {
+      // Before any domain is connected the agency is still setting up: not an attempt.
+      if (!inst.boundHosts.length) return;
+      const b = inst.blockedHosts[host] || { n: 0, last: null, first: now };
+      b.n += 1;
+      const quiet = b.last && Date.now() - Date.parse(b.last) < 3600e3;
+      b.last = now;
+      inst.blockedHosts[host] = b;
+      trim(inst.blockedHosts, (v) => v.last);
+      if (quiet && b.n % 50 !== 0) return;
+      if (b.n === 1) await store.log(inst.companyId, 'blocked_domain', host);
     }
     await store.put(inst);
   }
+  function trim(map, when) {
+    const keys = Object.keys(map);
+    if (keys.length <= MAX_SEEN) return;
+    keys.sort((a, b) => String(when(map[a])).localeCompare(String(when(map[b]))));
+    keys.slice(0, keys.length - MAX_SEEN).forEach((k) => delete map[k]);
+  }
+
+  /* What a request from `host` gets:
+       full    -> theme CSS + full script
+       verify  -> shared HighLevel domain: script loads the theme only after
+                  confirming the user belongs to this agency
+       setup   -> licensed, but this domain is not connected yet: script only
+                  offers agency admins the "Connect" button
+       off     -> not licensed */
+  function modeFor(inst, host) {
+    if (!isLicensed(inst)) return 'off';
+    if (isBound(inst, host)) return isShared(host) ? 'verify' : 'full';
+    return 'setup';
+  }
+
+  /* ---------------- pairing (connect a domain) ---------------- */
+  const validPair = (id) => typeof id === 'string' && PAIR_RE.test(id);
+
+  async function approvePairing(inst, pairId) {
+    if (!validPair(pairId)) throw new Error('Invalid connection request');
+    await store.putPairing({ id: pairId, companyId: inst.companyId, key: inst.key, approved: true, expiresAt: new Date(Date.now() + PAIR_TTL).toISOString() });
+    await store.log(inst.companyId, 'connect_approved');
+  }
+
+  // Called by the script running on the domain. The domain comes from the
+  // browser-controlled Origin header, never from the request body.
+  async function claimPairing(inst, pairId, originHost) {
+    if (!validPair(pairId) || !validHost(originHost)) return null;
+    const p = await store.getPairing(pairId);
+    if (!p || !p.approved || p.companyId !== inst.companyId || p.key !== inst.key) return null;
+    await store.deletePairing(pairId);
+    await bindHost(inst, originHost, 'approved by agency admin');
+    return issueEditorToken(inst, originHost);
+  }
+
+  function issueEditorToken(inst, host) {
+    return sec.sign({ t: 'ed', c: inst.companyId, h: host, e: inst.editorEpoch, exp: Date.now() + EDITOR_TTL });
+  }
+  function checkEditorToken(inst, token, originHost) {
+    const s = sec.unsign(token);
+    return !!(s && s.t === 'ed' && s.c === inst.companyId && s.e === inst.editorEpoch && s.h === originHost && isBound(inst, originHost));
+  }
+  async function revokeEditors(inst, who) {
+    inst.editorEpoch += 1;
+    await store.put(inst);
+    await store.log(inst.companyId, 'editors_revoked', who || '');
+  }
 
   return {
-    COMPANY_RE, isLicensed, statusOf, installFromOAuth, addManual, verify, markUninstalled,
-    rotatePublishKey, rotateAssetKey, checkPublishKey, saveConfig, parseHosts, hostAllowed, noteHost
+    COMPANY_RE, SHARED_HOSTS, get, byKey, list, isLicensed, statusOf, installFromOAuth, addManual, verify, markUninstalled,
+    rotateAssetKey, saveConfig, cleanHost, validHost, isShared, bindHost, unbindHost, noteRequest, modeFor,
+    validPair, approvePairing, claimPairing, checkEditorToken, revokeEditors
   };
 }
 

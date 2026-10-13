@@ -6,6 +6,7 @@
                so sidebar keys with dots ("*.custom") never clash with Mongo
                field-name rules. key / name / status are top-level for lookups.
      events    activity log, auto-deleted after 180 days (TTL index).
+     pairings  10-minute "connect this domain" approvals (TTL index).
    The connection is cached on `global` so warm serverless invocations reuse it. */
 const { MongoClient } = require('mongodb');
 
@@ -25,7 +26,8 @@ function createMongoStore(uri, dbName) {
           d.collection('installs').createIndex({ key: 1 }, { unique: true }),
           d.collection('installs').createIndex({ installedAt: -1 }),
           d.collection('events').createIndex({ companyId: 1, at: -1 }),
-          d.collection('events').createIndex({ at: 1 }, { expireAfterSeconds: EVENT_TTL_DAYS * 86400 })
+          d.collection('events').createIndex({ at: 1 }, { expireAfterSeconds: EVENT_TTL_DAYS * 86400 }),
+          d.collection('pairings').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
         ].map((p) => p.catch((e) => console.warn('[store] index not created: ' + e.message))));
         return { client, d };
       })().catch((e) => { global[cacheKey] = null; throw e; });
@@ -67,6 +69,15 @@ function createMongoStore(uri, dbName) {
       const docs = await (await events()).find(companyId ? { companyId } : {}).sort({ at: -1 }).limit(limit || 50).toArray();
       return docs.map((e) => ({ at: e.at.toISOString(), companyId: e.companyId, type: e.type, detail: e.detail }));
     },
+    async putPairing(p) {
+      await (await db()).collection('pairings').replaceOne({ _id: p.id }, Object.assign({ _id: p.id }, p, { expiresAt: new Date(p.expiresAt) }), { upsert: true });
+    },
+    async getPairing(id) {
+      const p = await (await db()).collection('pairings').findOne({ _id: id });
+      if (!p || p.expiresAt < new Date()) return null; // TTL cleanup can lag a minute
+      return { id: p.id, companyId: p.companyId, key: p.key, approved: p.approved, expiresAt: p.expiresAt.toISOString() };
+    },
+    async deletePairing(id) { await (await db()).collection('pairings').deleteOne({ _id: id }); },
     async close() {
       const c = global[cacheKey];
       global[cacheKey] = null;

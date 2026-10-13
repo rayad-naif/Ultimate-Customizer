@@ -1,56 +1,36 @@
 /* =====================================================================
    ULTIMATE CUSTOMIZER - THEME ENGINE (shared by server + browser)
    ---------------------------------------------------------------------
-   Takes the master CSS and a customer config and produces the customer's
-   CSS: every brand color (hex + rgba shades) is remapped, blur/radius are
-   scaled, the font is swapped, and effect/sidebar rules are appended.
-   Works as a CommonJS module (server) and as a browser global
-   (window.UCThemeEngine) when bundled into customizer.js.
+   template (tokenized master CSS) + config  ->  final CSS
+
+   Placeholders in the template:
+     [[id]]            resolved value (color hex, number+unit, select css, font)
+     [[id/0.3]]        color with alpha            -> rgba(r, g, b, 0.3)
+     [[id/otherId]]    color with alpha from a numeric setting
+     [[id*12px]]       numeric setting x 12, unit px  (scales)
+   Sections are delimited by  /*@section id*\/  markers and can be switched off.
    ===================================================================== */
 (function (root, factory) {
-  const api = factory();
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.UCThemeEngine = api;
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./registry'));
+  else root.UCThemeEngine = factory(root.UCRegistry);
+})(typeof self !== 'undefined' ? self : this, function (R) {
   'use strict';
 
-  const FONTS = ['Inter', 'Poppins', 'Montserrat', 'Roboto', 'Space Grotesk', 'DM Sans', 'Segoe UI'];
-  const SYSTEM_FONTS = ['Inter', 'Segoe UI'];
+  const TOKENS = R.TOKENS;
+  const NAV = '#sidebar-v2 nav[aria-label="header"]';
 
   const DEFAULTS = {
-    v: 1,
-    colors: { navy: '#000414', cyan: '#00e5ff', teal: '#00ced1', gold: '#ffd700', light: '#f4f7fa', red: '#ff1e28' },
-    fx: {
-      network: true,         // sidebar particle network
-      networkOpacity: 1,
-      networkDensity: 1,     // multiplier on particle count
-      loginNetwork: true,    // red & gold network on the login page
-      ripple: true,          // click water-drop
-      subaccountLogo: true,  // swap sidebar logo to the sub-account logo
-      noGlow: false,
-      noMotion: false,
-      blur: 1,
-      radius: 1,
-      font: 'Inter'
-    },
-    hideSelectors: [],       // e.g. ["#sb_app-media", "#sb_memberships"]
+    v: 2,
+    theme: 'irvex',
+    values: {},          // overrides only: { tokenId: value }
+    sections: {},        // { sectionId: false } to switch a master-CSS section off
     sidebar: {
       agency: { order: [], names: {}, hidden: [] },
       location: { order: [], names: {}, hidden: [] }
-    }
+    },
+    hideSelectors: [],
+    customCss: ''
   };
-
-  // Base colors of the master CSS and the shades derived from them.
-  const FAMILIES = {
-    navy:  { base: [0, 4, 20],    derived: [[0, 10, 26], [0, 26, 51], [0, 30, 60]] },
-    cyan:  { base: [0, 229, 255], derived: [] },
-    teal:  { base: [0, 206, 209], derived: [] },
-    gold:  { base: [255, 215, 0], derived: [[212, 175, 55]] },
-    light: { base: [244, 247, 250], derived: [] },
-    red:   { base: [255, 30, 40], derived: [] }
-  };
-
-  const NAV = '#sidebar-v2 nav[aria-label="header"]';
 
   /* ---------------- helpers ---------------- */
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -58,17 +38,7 @@
   const isHex = (s) => typeof s === 'string' && /^#[0-9a-f]{6}$/i.test(s);
   const clamp255 = (n) => Math.max(0, Math.min(255, Math.round(n)));
   const cssEsc = (s) => String(s).replace(/["\\]/g, '\\$&');
-
-  function merge(base, over) {
-    const out = Array.isArray(base) ? base.slice() : Object.assign({}, base);
-    if (!isObj(over)) return out;
-    for (const k in over) {
-      if (!Object.prototype.hasOwnProperty.call(over, k) || k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
-      const b = base ? base[k] : undefined;
-      out[k] = isObj(over[k]) && isObj(b) ? merge(b, over[k]) : over[k];
-    }
-    return out;
-  }
+  const fmtNum = (n) => String(Math.round(n * 1000) / 1000);
 
   function hexToRgb(h) {
     h = String(h).replace('#', '');
@@ -76,16 +46,29 @@
     return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
   }
   const rgbToHex = (r, g, b) => '#' + [r, g, b].map((v) => clamp255(v).toString(16).padStart(2, '0')).join('');
+  const rgba = (hex, a) => { const c = hexToRgb(hex); return 'rgba(' + c[0] + ', ' + c[1] + ', ' + c[2] + ', ' + a + ')'; };
 
-  function num(v, def, min, max) {
-    const n = Number(v);
-    if (!isFinite(n)) return def;
-    return Math.max(min, Math.min(max, n));
-  }
-
-  /* ---------------- config validation ---------------- */
+  /* ---------------- validation ---------------- */
   const KEY_RE = /^[\w*.:-]{1,160}$/;
   const SELECTOR_BAD = /[{}<>;@\\]|\/\*/;
+  const URL_RE = /^https:\/\/[^\s"'()<>\\]{3,500}$/;
+  const FONT_RE = /^[A-Za-z0-9 ]{1,40}$/;
+
+  function cleanValue(t, v) {
+    switch (t.type) {
+      case 'color': return isHex(v) ? v.toLowerCase() : undefined;
+      case 'num': {
+        const n = Number(v);
+        return isFinite(n) && v !== '' && v !== null ? Math.max(t.min, Math.min(t.max, n)) : undefined;
+      }
+      case 'select': return t.options.some((o) => o[0] === v) ? v : undefined;
+      case 'bool': return typeof v === 'boolean' ? v : undefined;
+      case 'text': return typeof v === 'string' ? v.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, t.max || 100) : undefined;
+      case 'url': return typeof v === 'string' && (v === '' || URL_RE.test(v.trim())) ? v.trim() : undefined;
+      case 'font': return typeof v === 'string' && (FONT_RE.test(v.trim()) || (v === '' && t.def === '')) ? v.trim() : undefined;
+      default: return undefined;
+    }
+  }
 
   function cleanKeys(arr) {
     if (!Array.isArray(arr)) return [];
@@ -99,25 +82,26 @@
     const src = isObj(input) ? input : {};
     const out = clone(DEFAULTS);
 
-    const c = isObj(src.colors) ? src.colors : {};
-    Object.keys(out.colors).forEach((k) => { if (isHex(c[k])) out.colors[k] = c[k].toLowerCase(); });
+    if (typeof src.theme === 'string' && R.THEMES.some((t) => t.id === src.theme)) out.theme = src.theme;
+    else if (src.theme === 'custom') out.theme = 'custom';
 
-    const f = isObj(src.fx) ? src.fx : {};
-    ['network', 'loginNetwork', 'ripple', 'subaccountLogo', 'noGlow', 'noMotion'].forEach((k) => {
-      if (typeof f[k] === 'boolean') out.fx[k] = f[k];
+    const vals = isObj(src.values) ? src.values : {};
+    Object.keys(vals).forEach((id) => {
+      const t = Object.prototype.hasOwnProperty.call(TOKENS, id) ? TOKENS[id] : null;
+      if (!t) return;
+      const v = cleanValue(t, vals[id]);
+      if (v !== undefined) out.values[id] = v;
     });
-    out.fx.networkOpacity = num(f.networkOpacity, out.fx.networkOpacity, 0, 1);
-    out.fx.networkDensity = num(f.networkDensity, out.fx.networkDensity, 0.2, 2);
-    out.fx.blur = num(f.blur, out.fx.blur, 0, 2);
-    out.fx.radius = num(f.radius, out.fx.radius, 0, 2);
-    if (typeof f.font === 'string' && /^[A-Za-z0-9 ]{1,40}$/.test(f.font)) out.fx.font = f.font;
+
+    const secs = isObj(src.sections) ? src.sections : {};
+    R.SECTIONS.forEach((s) => { if (secs[s[0]] === false) out.sections[s[0]] = false; });
 
     if (Array.isArray(src.hideSelectors)) {
       out.hideSelectors = src.hideSelectors
         .filter((s) => typeof s === 'string' && s.trim() && s.length <= 200 && !SELECTOR_BAD.test(s))
-        .map((s) => s.trim())
-        .slice(0, 40);
+        .map((s) => s.trim()).slice(0, 40);
     }
+    if (typeof src.customCss === 'string') out.customCss = src.customCss.replace(/</g, '').slice(0, 30000);
 
     const sb = isObj(src.sidebar) ? src.sidebar : {};
     ['agency', 'location'].forEach((view) => {
@@ -126,57 +110,89 @@
       if (isObj(v.names)) {
         Object.keys(v.names).slice(0, 150).forEach((k) => {
           const n = v.names[k];
-          if (KEY_RE.test(k) && typeof n === 'string' && n.trim()) names[k] = n.trim().slice(0, 60);
+          if (KEY_RE.test(k) && typeof n === 'string' && n.trim()) names[k] = n.replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60);
         });
       }
-      out.sidebar[view] = { order: cleanKeys(v.order), names: names, hidden: cleanKeys(v.hidden) };
+      out.sidebar[view] = { order: cleanKeys(v.order), names, hidden: cleanKeys(v.hidden) };
     });
     return out;
   }
 
-  /* ---------------- CSS generation ---------------- */
-  function buildColorMap(colors) {
-    const map = {};
-    for (const k in FAMILIES) {
-      const f = FAMILIES[k];
-      const to = hexToRgb(colors[k] || DEFAULTS.colors[k]);
-      const d = to.map((v, i) => v - f.base[i]);
-      if (!d.some(Boolean)) continue;
-      map[f.base.join(',')] = to;
-      f.derived.forEach((c) => { map[c.join(',')] = c.map((v, i) => clamp255(v + d[i])); });
+  /* ---------------- resolving ---------------- */
+  // Returns { id: value } for every setting, following '@ref' defaults.
+  function resolve(cfg) {
+    const vals = (cfg && cfg.values) || {};
+    const out = {};
+    function get(id, depth) {
+      if (Object.prototype.hasOwnProperty.call(out, id)) return out[id];
+      const t = TOKENS[id];
+      if (!t || depth > 12) return undefined;
+      let v = Object.prototype.hasOwnProperty.call(vals, id) ? vals[id] : t.def;
+      if (typeof v === 'string' && v.charAt(0) === '@') v = get(v.slice(1), depth + 1);
+      out[id] = v;
+      return v;
     }
-    return map;
-  }
-
-  function transformCss(css, cfg) {
-    const map = buildColorMap(cfg.colors);
-    let out = css;
-    if (Object.keys(map).length) {
-      out = out.replace(/#([0-9a-f]{6})(?![0-9a-f])/gi, (m, h) => {
-        const t = map[hexToRgb(h).join(',')];
-        return t ? rgbToHex(t[0], t[1], t[2]) : m;
-      });
-      out = out.replace(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?=\s*[,)])/gi, (m, r, g, b) => {
-        const t = map[[+r, +g, +b].join(',')];
-        return t ? 'rgba(' + t.join(', ') : m;
-      });
-    }
-    const fx = cfg.fx;
-    if (fx.blur !== 1) {
-      out = out.replace(/blur\(\s*([\d.]+)px\s*\)/gi, (m, n) => 'blur(' + (parseFloat(n) * fx.blur).toFixed(1) + 'px)');
-    }
-    if (fx.radius !== 1) {
-      out = out.replace(/border-radius\s*:[^;}]*/gi, (decl) =>
-        decl.replace(/([\d.]+)px/g, (m, n) => (parseFloat(n) * fx.radius).toFixed(1) + 'px'));
-    }
-    if (fx.font && fx.font !== 'Inter') out = out.replace(/'Inter'/g, "'" + fx.font + "'");
+    R.ORDER.forEach((id) => get(id, 0));
+    if (!out['type.headingFont']) out['type.headingFont'] = out['type.font'];
     return out;
   }
 
+  // Values computed from other settings (used only in the template).
+  const DERIVED = {
+    'login.formWidth': (r) => fmtNum(r['login.layout'] === 'centered' ? 100 : 100 - r['login.split']) + 'vw',
+    'login.cardPaddingX': (r) => fmtNum(Math.round(r['login.cardPadding'] * 0.875)) + 'px'
+  };
+
+  function format(id, r) {
+    if (DERIVED[id]) return DERIVED[id](r);
+    const t = TOKENS[id];
+    const v = r[id];
+    if (!t) return null;
+    if (t.type === 'num') return fmtNum(v) + (t.unit || '');
+    if (t.type === 'select') { const o = t.options.find((x) => x[0] === v); return o && o[2] ? o[2] : v; }
+    if (t.type === 'font') return "'" + v + "'";
+    return v;
+  }
+
+  /* ---------------- sections ---------------- */
+  const sectionCache = {};
+  function sections(template) {
+    if (sectionCache.src === template) return sectionCache.list;
+    const list = [];
+    const re = /\/\*@section ([\w]+)\*\//g;
+    let m, last = null;
+    while ((m = re.exec(template))) {
+      if (last) last.css = template.slice(last.start, m.index);
+      last = { id: m[1], start: m.index + m[0].length };
+      list.push(last);
+    }
+    if (last) last.css = template.slice(last.start);
+    sectionCache.src = template; sectionCache.list = list;
+    return list;
+  }
+
+  /* ---------------- CSS generation ---------------- */
+  function fill(css, r, unknown) {
+    return css.replace(/\[\[([\w.]+)(?:\/([\w.]+)|\*([\d.]+)([a-z%]*))?\]\]/g, (m, id, alpha, factor, unit) => {
+      if (factor !== undefined) {
+        const v = Number(r[id]);
+        if (!isFinite(v)) { unknown.push(id); return m; }
+        return fmtNum(v * Number(factor)) + unit;
+      }
+      if (alpha !== undefined) {
+        const hex = r[id];
+        const a = /^[\d.]+$/.test(alpha) ? alpha : (isFinite(Number(r[alpha])) ? fmtNum(Number(r[alpha])) : null);
+        if (!isHex(hex) || a === null) { unknown.push(id); return m; }
+        return rgba(hex, a);
+      }
+      const out = format(id, r);
+      if (out === null || out === undefined) { unknown.push(id); return m; }
+      return out;
+    });
+  }
+
   function sel(k) {
-    return k.indexOf('*.') === 0
-      ? '[id^="sb_"][id$=".' + cssEsc(k.slice(2)) + '"]'
-      : '[id="' + cssEsc(k) + '"]';
+    return k.indexOf('*.') === 0 ? '[id^="sb_"][id$=".' + cssEsc(k.slice(2)) + '"]' : '[id="' + cssEsc(k) + '"]';
   }
 
   function sidebarCss(cfg) {
@@ -193,39 +209,86 @@
       }
       (sb.hidden || []).forEach((k) => { css += scope + ' > a' + sel(k) + '{display:none!important}\n'; });
     });
-    // one rule per selector so a single bad selector can't drop the others
     (cfg.hideSelectors || []).forEach((s) => { css += s + '{display:none!important}\n'; });
     return css;
   }
 
-  function fxCss(cfg) {
-    const f = cfg.fx;
-    let c = '';
-    if (!f.network) c += '#irvex-network-canvas{display:none!important}\n';
-    else if (f.networkOpacity < 1) c += '#irvex-network-canvas{opacity:' + f.networkOpacity + '}\n';
-    if (!f.loginNetwork) c += '#irvex-login-network-canvas{display:none!important}\n';
-    if (!f.ripple) c += '.irvex-ripple-dynamic{display:none!important}\n';
-    if (f.noGlow) c += '*{text-shadow:none!important}\n';
-    if (f.noMotion) c += '*:not(.lds-ring):not(.lds-ring *),*::before,*::after{animation:none!important;transition:none!important}\n';
-    return c;
+  // Rules for settings that switch behaviour on/off rather than fill a value.
+  function extrasCss(r) {
+    const c = [];
+    const SB = 'aside,.sidebar-v2,#sidebar-v2,.hl_sidebar';
+    if (r['sidebar.bgStyle'] === 'gradient') c.push(SB + '{background-image:linear-gradient(' + r['sidebar.angle'] + 'deg,' + r['sidebar.bg'] + ',' + r['sidebar.bg2'] + ')!important}');
+    if (r['sidebar.edge']) c.push(SB + '{box-shadow:inset -1px 0 0 ' + rgba(r['sidebar.edgeColor'], 0.6) + ',4px 0 24px ' + rgba(r['sidebar.edgeColor'], 0.18) + '!important}');
+    if (r['nav.activeBg']) {
+      c.push(NAV + ' > a.active,' + NAV + ' > a.router-link-exact-active{background:' + rgba(r['nav.active'], 0.12) +
+        '!important;border-radius:' + fmtNum(8 * r['fx.radius']) + 'px!important;box-shadow:inset 3px 0 0 ' + r['nav.active'] + '!important}');
+    }
+    if (r['header.btnRadius'] > 0) {
+      c.push('.hl_header--controls a.btn,.hl_header--controls button,#hl_header--copilot-icon,#hl_header--help-icon,a.hl_header--recent-activities,a.btn-changelog,#template-power-dialer button{border-radius:' + r['header.btnRadius'] + 'px!important}');
+    }
+    if (!r['banner.animate']) c.push('#notification_banner-top_bar{animation:none!important}');
+    if (!r['login.meshAnimate']) c.push('.hl_login--header{animation:none!important}');
+    if (r['login.layout'] === 'centered') {
+      c.push('@media (min-width: 993px){.hl_login{position:relative!important}' +
+        '.hl_login--header{position:absolute!important;inset:0!important;width:100vw!important;box-shadow:none!important}' +
+        '.hl_login--header .container-fluid{justify-content:flex-start!important;padding-top:5vh!important}' +
+        '.hl_login--header img{max-height:min(' + r['login.logoMax'] + 'px,18vh)!important}' +
+        '.hl_login--body{width:100vw!important;background-color:transparent!important;z-index:5!important;padding-top:18vh!important}}');
+    }
+    if (r['login.bgImage']) {
+      const ov = rgba(r['login.bg'], r['login.bgOverlay']);
+      c.push('.hl_login{background:linear-gradient(' + ov + ',' + ov + '),url("' + cssEsc(r['login.bgImage']) + '") center/cover no-repeat!important}' +
+        '.hl_login--header,.hl_login--body{background-color:transparent!important}');
+    }
+    if (!r['login.logoGlass']) c.push('.hl_login--header img,.hl_login--header img:hover{background:transparent!important;border-color:transparent!important;box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}');
+    if (r['login.logoFloat']) c.push('.hl_login--header img{animation:floatLogo 6s ease-in-out infinite!important}');
+    c.push('.uc-login-tagline{position:relative;z-index:10;margin-top:24px;text-align:center;font-family:' + format('type.headingFont', r) +
+      ',sans-serif;font-weight:600;letter-spacing:.5px;color:' + r['login.taglineColor'] + ';font-size:' + r['login.taglineSize'] +
+      'px;text-shadow:0 0 ' + fmtNum(12 * r['fx.glow']) + 'px ' + rgba(r['login.taglineColor'], 0.45) + ';max-width:80%}');
+    if (!r['net.enabled']) c.push('#irvex-network-canvas{display:none!important}');
+    else if (r['net.opacity'] < 1) c.push('#irvex-network-canvas{opacity:' + fmtNum(r['net.opacity']) + '}');
+    if (!r['lnet.enabled']) c.push('#irvex-login-network-canvas{display:none!important}');
+    if (!r['ripple.enabled']) c.push('.irvex-ripple-dynamic{display:none!important}');
+    if (r['fx.reduceMotion']) c.push('*:not(.lds-ring):not(.lds-ring *),*::before,*::after{animation:none!important;transition:none!important}');
+    return c.join('\n') + '\n';
   }
 
-  function fontImport(cfg) {
-    const font = cfg.fx.font;
-    if (!font || SYSTEM_FONTS.indexOf(font) !== -1) return '';
-    return '@import url("https://fonts.googleapis.com/css2?family=' + encodeURIComponent(font).replace(/%20/g, '+') +
-      ':wght@400;500;600;700;800&display=swap");\n';
+  function fontImport(r) {
+    const fams = [r['type.font'], r['type.headingFont']]
+      .filter((f, i, a) => f && a.indexOf(f) === i && R.SYSTEM_FONTS.indexOf(f) === -1);
+    if (!fams.length) return '';
+    return '@import url("https://fonts.googleapis.com/css2?' +
+      fams.map((f) => 'family=' + encodeURIComponent(f).replace(/%20/g, '+') + ':wght@300;400;500;600;700;800').join('&') +
+      '&display=swap");\n';
   }
 
   // Full stylesheet for a customer. @import must come first in a stylesheet.
-  function compile(baseCss, cfg) {
-    cfg = sanitize(cfg);
-    return fontImport(cfg) + transformCss(baseCss, cfg) + '\n/* ---- effects & sidebar ---- */\n' + fxCss(cfg) + sidebarCss(cfg);
+  function compile(template, input, opts) {
+    const cfg = sanitize(input);
+    const r = resolve(cfg);
+    const off = Object.assign({}, cfg.sections);
+    if (r['content.mode'] === 'dark') { off.contentLight = false; off.contentLightText = false; }
+    const unknown = [];
+    const body = sections(template).filter((s) => off[s.id] !== false).map((s) => fill(s.css, r, unknown)).join('');
+    if (opts && opts.unknown) opts.unknown.push.apply(opts.unknown, unknown);
+    return fontImport(r) + body + '\n/* ---- settings ---- */\n' + extrasCss(r) + sidebarCss(cfg) +
+      (cfg.customCss ? '\n/* ---- custom CSS ---- */\n' + cfg.customCss + '\n' : '');
+  }
+
+  // Switch theme: palette + theme extras; section color tweaks follow the new palette.
+  function applyTheme(input, themeId) {
+    const cfg = sanitize(input);
+    const th = R.THEMES.find((t) => t.id === themeId);
+    if (!th) return cfg;
+    Object.keys(cfg.values).forEach((id) => { if (TOKENS[id].type === 'color' || id === 'fx.glow') delete cfg.values[id]; });
+    Object.assign(cfg.values, th.p, th.s || {});
+    cfg.theme = th.id;
+    return sanitize(cfg);
   }
 
   return {
-    FONTS, SYSTEM_FONTS, DEFAULTS, FAMILIES, NAV,
-    clone, merge, isHex, hexToRgb, rgbToHex,
-    sanitize, buildColorMap, transformCss, sidebarCss, fxCss, fontImport, compile
+    R, TOKENS, DEFAULTS, NAV, FONTS: R.FONTS,
+    clone, isHex, hexToRgb, rgbToHex, rgba,
+    sanitize, resolve, compile, applyTheme, sections, sidebarCss
   };
 });

@@ -11,11 +11,12 @@ const copy = (o) => (o ? JSON.parse(JSON.stringify(o)) : null);
 function createFileStore(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
   const file = path.join(dataDir, 'db.json');
-  let db = { installs: {}, events: [] };
+  let db = { installs: {}, events: [], pairings: {} };
   if (fs.existsSync(file)) {
     db = JSON.parse(fs.readFileSync(file, 'utf8'));
     db.installs = db.installs || {};
     db.events = db.events || [];
+    db.pairings = db.pairings || {};
   }
 
   let timer = null;
@@ -47,6 +48,14 @@ function createFileStore(dataDir) {
       save();
     },
     async events(companyId, limit) { return db.events.filter((e) => !companyId || e.companyId === companyId).slice(0, limit || 50); },
+    // Short-lived "connect this domain" approvals.
+    async putPairing(p) { db.pairings[p.id] = copy(p); save(); },
+    async getPairing(id) {
+      const p = db.pairings[id];
+      if (p && Date.parse(p.expiresAt) < Date.now()) { delete db.pairings[id]; save(); return null; }
+      return copy(p);
+    },
+    async deletePairing(id) { delete db.pairings[id]; save(); },
     async close() { if (timer) { clearTimeout(timer); flush(); } }
   };
 }

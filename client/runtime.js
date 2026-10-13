@@ -1,49 +1,62 @@
 /* =====================================================================
    RUNTIME  (bundled first; shared by effects.js and customizer.js)
-   - holds the license + live config
+   - license, mode and live config (UC.active / resolved values UC.r)
    - one XHR/fetch hook that fans responses out to listeners
-   - runtime license guard: disables everything if the logged-in user
-     belongs to a different agency (company) than the one licensed
-   - manages the served theme stylesheet + the live-preview layer
+   - runtime company guard: the logged-in user must belong to the
+     licensed agency, otherwise everything shuts off
+   - served stylesheet, live-preview layer, realtime updates
+   Modes (decided by the server per domain):
+     full   - theme CSS is linked, effects run immediately
+     verify - shared HighLevel domain: theme loads after company check
+     setup  - domain not connected yet: only the Connect button
    ===================================================================== */
 /* global UC_BOOT */
 var UC = (function () {
   'use strict';
-  const engine = window.UCThemeEngine;
-  const responseListeners = [];
-  const killListeners = [];
+  const E = window.UCThemeEngine;
+  const B = UC_BOOT;
+  const L = B.license;
+  const on = { response: [], kill: [], change: [], live: [] };
+  const emit = (k) => on[k].slice().forEach((fn) => { try { fn(); } catch (e) { /* never break GHL */ } });
 
   const UC = {
-    engine: engine,
-    license: UC_BOOT.license,          // { key, companyId, base }
-    baked: engine.sanitize(UC_BOOT.config), // config the served CSS was built from
-    active: null,                      // config currently on screen
+    E: E,
+    mode: B.mode,
+    license: L,
+    version: B.version,
+    baked: E.sanitize(B.config),   // config currently saved on the server
+    active: null,                  // config on screen (draft while editing)
+    r: null,                       // resolved values of `active`
     killed: false,
-    users: {},                         // email -> { roles, companyId }
-    onResponse: (fn) => responseListeners.push(fn),
-    onKill: (fn) => killListeners.push(fn)
+    live: B.mode === 'full',       // theme + effects running
+    editing: false,
+    users: {},                     // email -> { roles, companyId }
+    company: 'unknown',            // 'match' | 'mismatch' | 'unknown'
+    onResponse: (fn) => on.response.push(fn),
+    onKill: (fn) => on.kill.push(fn),
+    onChange: (fn) => on.change.push(fn),
+    onLive: (fn) => { if (UC.live) fn(); else on.live.push(fn); },
+    api: (p) => L.base + p
   };
-  UC.active = UC.baked;
+  UC.setActive = function (cfg) { UC.active = cfg; UC.r = E.resolve(cfg); emit('change'); };
+  UC.setActive(UC.baked);
 
   const PREVIEW_ID = 'uc-preview-layer';
+  const VERIFIED_ID = 'uc-verified-theme';
   const LINK_ID = 'uc-theme-link';
-  const themePath = '/c/' + UC.license.key + '/theme.css';
-  const themeUrl = UC.license.base + themePath;
+  const themePath = '/c/' + L.key + '/theme.css';
+  const themeUrl = L.base + themePath;
 
   /* ---------------- network hook ---------------- */
   function dispatch(url, text) {
     if (UC.killed || typeof text !== 'string' || text.length > 2e6) return;
     if (text.indexOf('"roles"') !== -1) { try { ingest(JSON.parse(text), 0); } catch (e) { /* not json */ } }
-    responseListeners.forEach((fn) => { try { fn(String(url || ''), text); } catch (e) { /* ignore */ } });
+    on.response.forEach((fn) => { try { fn(String(url || ''), text); } catch (e) { /* ignore */ } });
   }
-
   (function hookNetwork() {
     const open = XMLHttpRequest.prototype.open;
     const send = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.open = function (method, url) {
-      this.__ucUrl = url;
-      return open.apply(this, arguments);
-    };
+    XMLHttpRequest.prototype.open = function (method, url) { this.__ucUrl = url; return open.apply(this, arguments); };
     XMLHttpRequest.prototype.send = function () {
       this.addEventListener('load', function () {
         try { if (this.responseType === '' || this.responseType === 'text') dispatch(this.__ucUrl, this.responseText); } catch (e) { /* ignore */ }
@@ -56,8 +69,7 @@ var UC = (function () {
         const url = typeof input === 'string' ? input : (input && input.url) || '';
         return f.apply(this, arguments).then((res) => {
           try {
-            const ct = res.headers.get('content-type') || '';
-            if (ct.indexOf('json') !== -1) res.clone().text().then((t) => dispatch(url, t)).catch(() => {});
+            if ((res.headers.get('content-type') || '').indexOf('json') !== -1) res.clone().text().then((t) => dispatch(url, t)).catch(() => {});
           } catch (e) { /* ignore */ }
           return res;
         });
@@ -65,140 +77,164 @@ var UC = (function () {
     }
   })();
 
-  /* ---------------- user / company detection ---------------- */
+  /* ---------------- company guard ---------------- */
   function ingest(json, depth) {
     if (!json || typeof json !== 'object' || depth > 6) return;
     if (Array.isArray(json)) { json.slice(0, 300).forEach((x) => ingest(x, depth + 1)); return; }
     if (typeof json.email === 'string' && json.roles && typeof json.roles === 'object') {
-      UC.users[json.email.toLowerCase()] = {
-        roles: json.roles,
-        companyId: json.companyId || json.roles.companyId || null
-      };
-      checkCompany();
+      const cid = json.companyId || json.roles.companyId || null;
+      UC.users[json.email.toLowerCase()] = { roles: json.roles, companyId: cid };
+      if (cid) companySeen(cid === L.companyId);
     }
     for (const k in json) if (json[k] && typeof json[k] === 'object') ingest(json[k], depth + 1);
   }
-
+  function companySeen(match) {
+    if (match) {
+      if (UC.company !== 'match') { UC.company = 'match'; if (UC.mode === 'verify') goLive(); }
+      return;
+    }
+    if (UC.company === 'unknown') {
+      UC.company = 'mismatch';
+      // Give a matching user object a moment to show up before shutting down.
+      setTimeout(() => { if (UC.company !== 'match') UC.kill('this license belongs to a different agency'); }, 1200);
+    }
+  }
   UC.currentEmail = function () {
     const el = document.querySelector('.hl_header--dropdown .user-info-card .text-xs');
     return el ? el.textContent.trim().toLowerCase() : '';
   };
 
-  function checkCompany() {
-    const email = UC.currentEmail();
-    const u = email && UC.users[email];
-    if (u && u.companyId && UC.license.companyId && u.companyId !== UC.license.companyId) {
-      UC.kill('this license belongs to a different agency');
-    }
-  }
-
-  /* ---------------- served stylesheet (link or @import) ---------------- */
-  const detached = []; // { sheet, cssText }
-
+  /* ---------------- served stylesheet (link / @import / verified) ---------------- */
+  const detached = [];
   function servedLinks() {
     return Array.from(document.querySelectorAll('link[rel="stylesheet"]')).filter((l) => (l.href || '').indexOf(themePath) !== -1);
   }
   function eachImport(cb) {
     Array.from(document.styleSheets).forEach((sheet) => {
       let rules;
-      try { rules = sheet.cssRules; } catch (e) { return; } // cross-origin
+      try { rules = sheet.cssRules; } catch (e) { return; }
       for (let i = rules.length - 1; i >= 0; i--) {
         const r = rules[i];
-        if (r.type === 3 /* IMPORT_RULE */ && (r.href || '').indexOf(themePath) !== -1) cb(sheet, i, r);
+        if (r.type === 3 && (r.href || '').indexOf(themePath) !== -1) cb(sheet, i, r);
       }
     });
   }
   function hasServed() {
-    if (servedLinks().length || detached.length) return true;
+    if (servedLinks().length || detached.length || document.getElementById(VERIFIED_ID)) return true;
     let found = false;
     eachImport(() => { found = true; });
     return found;
   }
   function detachServed() {
     servedLinks().forEach((l) => { l.disabled = true; });
+    const v = document.getElementById(VERIFIED_ID);
+    if (v) v.disabled = true;
     eachImport((sheet, i, r) => {
-      detached.push({ sheet: sheet, cssText: r.cssText });
+      detached.push({ sheet, cssText: r.cssText });
       try { sheet.deleteRule(i); } catch (e) { /* ignore */ }
     });
   }
-  function attachServed(bust) {
-    const v = bust ? '?v=' + Date.now() : '';
-    servedLinks().forEach((l) => {
-      if (bust) l.href = themeUrl + v;
-      l.disabled = false;
-    });
-    detached.splice(0).forEach((d) => {
-      const css = bust ? '@import url("' + themeUrl + v + '");' : d.cssText;
-      try { d.sheet.insertRule(css, 0); } catch (e) { /* ignore */ }
-    });
-  }
-  // If the customer only pasted the JS snippet, load the CSS ourselves.
   function ensureServed() {
-    if (UC.killed || hasServed()) return;
+    if (UC.killed || UC.mode !== 'full' || hasServed()) return;
     const l = document.createElement('link');
-    l.id = LINK_ID;
-    l.rel = 'stylesheet';
-    l.href = themeUrl;
+    l.id = LINK_ID; l.rel = 'stylesheet'; l.href = themeUrl;
     document.head.appendChild(l);
   }
-  setTimeout(ensureServed, 1500);
+  if (UC.mode === 'full') setTimeout(ensureServed, 1500);
 
-  /* ---------------- live preview layer ---------------- */
-  let basePromise = null;
-  function baseCss() {
-    if (!basePromise) {
-      basePromise = fetch(UC.license.base + '/c/' + UC.license.key + '/base.css', { credentials: 'omit' })
-        .then((r) => { if (!r.ok) throw new Error('base css ' + r.status); return r.text(); })
-        .catch((e) => { basePromise = null; throw e; });
+  // Shared HighLevel domains: fetch the theme only after the company matched.
+  function goLive() {
+    if (UC.live || UC.killed) return;
+    fetch(themeUrl, { credentials: 'omit', headers: { 'X-UC-Verified': '1' } })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error('theme ' + r.status))))
+      .then((css) => {
+        if (UC.killed) return;
+        let el = document.getElementById(VERIFIED_ID);
+        if (!el) { el = document.createElement('style'); el.id = VERIFIED_ID; document.head.appendChild(el); }
+        el.textContent = css;
+        UC.live = true;
+        emit('live');
+      })
+      .catch(() => {});
+  }
+
+  /* ---------------- preview layer ---------------- */
+  let tplPromise = null;
+  UC.template = function () {
+    if (!tplPromise) {
+      tplPromise = fetch(UC.api('/c/' + L.key + '/template.css'), { credentials: 'omit' })
+        .then((r) => (r.ok ? r.text() : Promise.reject(new Error('template ' + r.status))))
+        .catch((e) => { tplPromise = null; throw e; });
     }
-    return basePromise;
-  }
-  function removePreview() {
-    const el = document.getElementById(PREVIEW_ID);
-    if (el) el.remove();
-  }
-  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-
-  // Show `cfg` on screen. Returns a promise that settles once it is visible.
-  UC.preview = function (cfg) {
+    return tplPromise;
+  };
+  // Paint `cfg` immediately (used while editing and for realtime updates).
+  UC.render = function (cfg) {
     if (UC.killed) return Promise.resolve();
-    UC.active = engine.sanitize(cfg);
-    if (same(UC.active, UC.baked)) { attachServed(false); removePreview(); return Promise.resolve(); }
+    UC.setActive(E.sanitize(cfg));
     const want = UC.active;
-    return baseCss().then((css) => {
-      if (UC.active !== want || UC.killed) return; // superseded
+    return UC.template().then((tpl) => {
+      if (UC.active !== want || UC.killed) return;
       let el = document.getElementById(PREVIEW_ID);
       if (!el) { el = document.createElement('style'); el.id = PREVIEW_ID; }
-      el.textContent = engine.compile(css, want);
-      // keep the preview layer last so it wins the cascade
+      el.textContent = E.compile(tpl, want);
       if (document.documentElement.lastElementChild !== el) document.documentElement.appendChild(el);
       detachServed();
     });
   };
 
-  // After a publish: the server CSS now matches `cfg`; reload it fresh.
-  UC.published = function (cfg) {
-    UC.baked = engine.sanitize(cfg);
-    UC.active = UC.baked;
-    attachServed(true);
-    setTimeout(() => { if (same(UC.active, UC.baked)) removePreview(); }, 2000);
+  /* ---------------- saving + realtime updates ---------------- */
+  const TOKEN_LS = 'uc_editor_' + L.key;
+  UC.editorToken = (v) => {
+    try {
+      if (v === undefined) return localStorage.getItem(TOKEN_LS) || '';
+      if (v) localStorage.setItem(TOKEN_LS, v); else localStorage.removeItem(TOKEN_LS);
+    } catch (e) { return ''; }
+    return v;
+  };
+  // Save to the server (MongoDB). Resolves to the new version.
+  UC.save = function (cfg) {
+    const clean = E.sanitize(cfg);
+    return fetch(UC.api('/api/config'), {
+      method: 'PUT',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + UC.editorToken() },
+      body: JSON.stringify({ key: L.key, config: clean })
+    }).then((r) => r.json().catch(() => ({})).then((j) => {
+      if (!r.ok) { const err = new Error(j.error || ('Save failed (' + r.status + ')')); err.status = r.status; throw err; }
+      UC.version = j.version; UC.baked = clean;
+      return j.version;
+    }));
   };
 
+  function poll() {
+    if (UC.killed || !UC.live || UC.editing || document.hidden) return;
+    fetch(UC.api('/c/' + L.key + '/v.json?have=' + UC.version), { credentials: 'omit' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j || !(j.v > UC.version) || !j.config || UC.editing) return;
+        UC.version = j.v;
+        UC.baked = E.sanitize(j.config);
+        UC.render(UC.baked).catch(() => {});
+      })
+      .catch(() => {});
+  }
+  setInterval(poll, 60000);
+  document.addEventListener('visibilitychange', poll);
+
+  /* ---------------- kill switch ---------------- */
   UC.kill = function (reason) {
     if (UC.killed) return;
     UC.killed = true;
+    UC.live = false;
     try { console.warn('[Ultimate Customizer] disabled: ' + reason); } catch (e) { /* ignore */ }
-    killListeners.forEach((fn) => { try { fn(); } catch (e) { /* ignore */ } });
-    removePreview();
+    emit('kill');
     detachServed();
-    const l = document.getElementById(LINK_ID);
-    if (l) l.remove();
-    ['irvex-network-canvas', 'irvex-login-network-canvas'].forEach((id) => {
-      const c = document.getElementById(id);
-      if (c) c.remove();
+    [PREVIEW_ID, LINK_ID, VERIFIED_ID, 'irvex-network-canvas', 'irvex-login-network-canvas'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.remove();
     });
   };
 
-  setInterval(() => { if (!UC.killed) checkCompany(); }, 2000);
   return UC;
 })();

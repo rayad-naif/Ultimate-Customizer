@@ -1,37 +1,27 @@
 /* =====================================================================
-   EFFECTS  (bundled into customizer.js; reads live config from UC.active)
-   Ported from the IRVEX master JS. Colors come from the customer config,
-   so the canvases always match the generated CSS.
+   EFFECTS  (bundled into customizer.js; reads live settings from UC.r)
+   Ported from the IRVEX master JS: sidebar + login networks, click
+   ripple, sub-account logo, plus login heading/tagline text.
    ===================================================================== */
 /* global UC */
 (function UCEffects() {
   'use strict';
-
-  function rgba(hex, a) {
-    const c = UC.engine.hexToRgb(hex);
-    return 'rgba(' + c[0] + ', ' + c[1] + ', ' + c[2] + ', ' + a + ')';
-  }
-  function mix(h1, h2) {
-    const a = UC.engine.hexToRgb(h1), b = UC.engine.hexToRgb(h2);
-    return UC.engine.rgbToHex((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
-  }
-  const fx = () => UC.active.fx;
-  const colors = () => UC.active.colors;
+  const E = UC.E;
+  const v = (id) => UC.r[id];
+  const rgba = (hex, a) => E.rgba(hex, Math.max(0, Math.min(1, a)).toFixed(3));
+  const mix = (h1, h2) => {
+    const a = E.hexToRgb(h1), b = E.hexToRgb(h2);
+    return E.rgbToHex((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+  };
 
   /* ------------------------------------------------------------------
      Generic particle network on a canvas inside `container`.
-     opts: { id, baseCount, density(), enabled(), linkDist, linkFade,
-             mouseDist, mouseFade, linkWidth, mouseWidth, accentChance,
-             nodeColor(p), linkColor(p, p2), mouseColor(p) }
+     p(name) reads that network's settings ('net.*' or 'lnet.*').
   ------------------------------------------------------------------ */
-  function createNetwork(container, opts) {
+  function createNetwork(container, id, opts) {
     const canvas = document.createElement('canvas');
-    canvas.id = opts.id;
-    canvas.style.position = 'absolute';
-    canvas.style.top = '0';
-    canvas.style.left = '0';
-    canvas.style.zIndex = '0';
-    canvas.style.pointerEvents = 'none';
+    canvas.id = id;
+    canvas.style.cssText = 'position:absolute;top:0;left:0;z-index:0;pointer-events:none';
     container.insertBefore(canvas, container.firstChild);
 
     const ctx = canvas.getContext('2d');
@@ -44,20 +34,13 @@
 
     const particles = [];
     const spawn = () => ({
-      x: Math.random() * (width || 300),
-      y: Math.random() * (height || 1000),
-      vx: (Math.random() - 0.5) * 0.8,
-      vy: (Math.random() - 0.5) * 0.8,
-      radius: Math.random() * 1.5 + 0.5,
-      accent: Math.random() < opts.accentChance
+      x: Math.random() * (width || 300), y: Math.random() * (height || 1000),
+      dx: Math.random() - 0.5, dy: Math.random() - 0.5,
+      size: Math.random() * 1.5 + 0.5, roll: Math.random()
     });
 
     const mouse = { x: null, y: null };
-    const onMove = (e) => {
-      const r = container.getBoundingClientRect();
-      mouse.x = e.clientX - r.left;
-      mouse.y = e.clientY - r.top;
-    };
+    const onMove = (e) => { const r = container.getBoundingClientRect(); mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top; };
     const onLeave = () => { mouse.x = null; mouse.y = null; };
     container.addEventListener('mousemove', onMove);
     container.addEventListener('mouseleave', onLeave);
@@ -72,49 +55,49 @@
     }
 
     function frame() {
-      // GHL re-rendered the container or the license was killed: clean up.
       if (UC.killed || !canvas.isConnected || !container.isConnected) { stop(); return; }
       raf = requestAnimationFrame(frame);
       ctx.clearRect(0, 0, width, height);
       if (!opts.enabled()) return;
+      const s = opts.settings();
 
-      const want = Math.max(10, Math.round(opts.baseCount * opts.density()));
-      while (particles.length < want) particles.push(spawn());
-      if (particles.length > want) particles.length = want;
+      while (particles.length < s.count) particles.push(spawn());
+      if (particles.length > s.count) particles.length = s.count;
 
       const n = particles.length;
       for (let i = 0; i < n; i++) {
         const p = particles[i];
-        p.x += p.vx; p.y += p.vy;
-        if (p.x < 0 || p.x > width) p.vx *= -1;
-        if (p.y < 0 || p.y > height) p.vy *= -1;
+        const accent = p.roll < s.accentRatio;
+        p.x += p.dx * s.speed; p.y += p.dy * s.speed;
+        if (p.x < 0 || p.x > width) p.dx *= -1;
+        if (p.y < 0 || p.y > height) p.dy *= -1;
 
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fillStyle = opts.nodeColor(p);
+        ctx.arc(p.x, p.y, p.size * s.nodeSize, 0, Math.PI * 2);
+        ctx.fillStyle = rgba(accent ? s.accent : s.node, 0.9);
         ctx.fill();
 
         for (let j = i + 1; j < n; j++) {
           const p2 = particles[j];
           const dx = p.x - p2.x, dy = p.y - p2.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < opts.linkDist) {
+          if (dist < s.linkDist) {
+            const accent2 = p2.roll < s.accentRatio;
             ctx.beginPath();
-            ctx.strokeStyle = opts.linkColor(p, p2, 0.7 - dist / opts.linkFade);
-            ctx.lineWidth = opts.linkWidth;
+            ctx.strokeStyle = rgba(opts.linkColor(s, accent, accent2), 0.7 - dist / (s.linkDist * 1.4));
+            ctx.lineWidth = s.lineWidth;
             ctx.moveTo(p.x, p.y);
             ctx.lineTo(p2.x, p2.y);
             ctx.stroke();
           }
         }
-
-        if (mouse.x !== null) {
+        if (mouse.x !== null && s.mouse > 0) {
           const dx = p.x - mouse.x, dy = p.y - mouse.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < opts.mouseDist) {
+          if (dist < s.mouse) {
             ctx.beginPath();
-            ctx.strokeStyle = opts.mouseColor(p, 0.95 - dist / opts.mouseFade);
-            ctx.lineWidth = opts.mouseWidth;
+            ctx.strokeStyle = rgba(accent ? s.accent : s.node, 0.95 - dist / (s.mouse * 1.07));
+            ctx.lineWidth = s.lineWidth * 1.5;
             ctx.moveTo(p.x, p.y);
             ctx.lineTo(mouse.x, mouse.y);
             ctx.stroke();
@@ -123,75 +106,77 @@
       }
     }
     frame();
-    return { stop };
   }
 
-  /* ------------------------------------------------------------------
-     1. SIDEBAR NETWORK (cyan/teal + gold)
-  ------------------------------------------------------------------ */
   function initSidebarNetwork() {
     const sidebar = document.querySelector('aside, .sidebar-v2, #sidebar-v2, .hl_sidebar');
     if (!sidebar || document.getElementById('irvex-network-canvas')) return;
-    createNetwork(sidebar, {
-      id: 'irvex-network-canvas',
-      baseCount: 150,
-      density: () => fx().networkDensity,
-      enabled: () => fx().network,
-      accentChance: 0.15,
-      linkDist: 90, linkFade: 130, linkWidth: 1.2,
-      mouseDist: 160, mouseFade: 170, mouseWidth: 1.8,
-      nodeColor: (p) => rgba(p.accent ? colors().gold : colors().cyan, 0.9),
-      linkColor: (p, p2, a) => rgba(p.accent || p2.accent ? colors().gold : colors().teal, a),
-      mouseColor: (p, a) => rgba(p.accent ? colors().gold : colors().cyan, a)
+    createNetwork(sidebar, 'irvex-network-canvas', {
+      enabled: () => v('net.enabled') && !v('fx.reduceMotion'),
+      settings: () => ({
+        count: v('net.count'), speed: v('net.speed'), accentRatio: v('net.accentRatio'), nodeSize: v('net.nodeSize') / 1.5,
+        linkDist: v('net.linkDist'), mouse: v('net.mouse'), lineWidth: v('net.lineWidth'),
+        node: v('net.node'), accent: v('net.accent'), link: v('net.link')
+      }),
+      linkColor: (s, a1, a2) => (a1 || a2 ? s.accent : s.link)
     });
   }
 
-  /* ------------------------------------------------------------------
-     2. LOGIN PAGE NETWORK (login accent + gold)
-  ------------------------------------------------------------------ */
   function initLoginNetwork() {
     const header = document.querySelector('.hl_login--header');
     if (!header || document.getElementById('irvex-login-network-canvas')) return;
-    createNetwork(header, {
-      id: 'irvex-login-network-canvas',
-      baseCount: 120,
-      density: () => fx().networkDensity,
-      enabled: () => fx().loginNetwork,
-      accentChance: 0.5,
-      linkDist: 100, linkFade: 140, linkWidth: 1.2,
-      mouseDist: 180, mouseFade: 200, mouseWidth: 2.0,
-      nodeColor: (p) => rgba(p.accent ? colors().gold : colors().red, 0.9),
-      linkColor: (p, p2, a) => {
-        if (p.accent && p2.accent) return rgba(colors().gold, a);
-        if (!p.accent && !p2.accent) return rgba(colors().red, a);
-        return rgba(mix(colors().red, colors().gold), a);
-      },
-      mouseColor: (p, a) => rgba(p.accent ? colors().gold : colors().red, a)
+    createNetwork(header, 'irvex-login-network-canvas', {
+      enabled: () => v('lnet.enabled') && !v('fx.reduceMotion'),
+      settings: () => ({
+        count: v('lnet.count'), speed: v('lnet.speed'), accentRatio: v('lnet.accentRatio'), nodeSize: 1,
+        linkDist: v('lnet.linkDist'), mouse: v('lnet.mouse'), lineWidth: 1.2,
+        node: v('lnet.node'), accent: v('lnet.accent')
+      }),
+      linkColor: (s, a1, a2) => (a1 && a2 ? s.accent : !a1 && !a2 ? s.node : mix(s.node, s.accent))
     });
   }
 
   /* ------------------------------------------------------------------
-     3. CLICK RIPPLE (styled by .irvex-ripple-dynamic in the theme CSS)
+     LOGIN TEXT  (heading replacement + tagline under the logo)
+  ------------------------------------------------------------------ */
+  function syncLoginText() {
+    const h2 = document.querySelector('.login-card-heading h2');
+    if (h2) {
+      if (h2.dataset.ucOrig === undefined) h2.dataset.ucOrig = h2.textContent;
+      const want = v('login.headingText') || h2.dataset.ucOrig;
+      if (h2.textContent !== want) h2.textContent = want;
+    }
+    const wrap = document.querySelector('.hl_login--header .container-fluid') || document.querySelector('.hl_login--header');
+    let tag = document.querySelector('.uc-login-tagline');
+    const text = v('login.tagline');
+    if (!wrap || !text) { if (tag) tag.remove(); return; }
+    if (!tag) { tag = document.createElement('div'); tag.className = 'uc-login-tagline'; wrap.appendChild(tag); }
+    if (tag.textContent !== text) tag.textContent = text;
+  }
+
+  /* ------------------------------------------------------------------
+     CLICK RIPPLE
   ------------------------------------------------------------------ */
   document.addEventListener('click', function (e) {
-    if (UC.killed || !fx().ripple) return;
+    if (UC.killed || !UC.live || !v('ripple.enabled') || v('fx.reduceMotion')) return;
+    if (e.target.closest && e.target.closest('#irvex-uc-host')) return;
+    const d = v('ripple.size');
     const ripple = document.createElement('span');
     ripple.className = 'irvex-ripple-dynamic';
-    const d = 80;
     ripple.style.width = d + 'px';
     ripple.style.height = d + 'px';
     ripple.style.left = (e.clientX - d / 2) + 'px';
     ripple.style.top = (e.clientY - d / 2) + 'px';
     document.body.appendChild(ripple);
-    setTimeout(() => ripple.remove(), 1200);
+    setTimeout(() => ripple.remove(), v('ripple.duration') * 1000);
   });
 
   /* ------------------------------------------------------------------
-     4. SUB-ACCOUNT LOGO SWAP
+     SUB-ACCOUNT LOGO SWAP
   ------------------------------------------------------------------ */
   const logo = { master: null, loc: null };
   const LOGO_LS = (id) => 'irvex_logo_' + id;
-  const validLogo = (u) => typeof u === 'string' && u && u.indexOf('default') === -1 && u.indexOf('placeholder') === -1;
+  const validLogo = (u) => typeof u === 'string' && /^https?:\/\//.test(u) && u.indexOf('default') === -1 && u.indexOf('placeholder') === -1;
 
   function restoreMasterLogo() {
     const img = document.querySelector('img.agency-logo');
@@ -199,23 +184,22 @@
     if (img) img.classList.remove('irvex-subaccount-logo');
   }
   function applySubaccountLogo(url) {
-    if (!fx().subaccountLogo || !validLogo(url)) { restoreMasterLogo(); return; }
+    if (!v('sublogo.enabled') || !validLogo(url)) { restoreMasterLogo(); return; }
     const img = document.querySelector('img.agency-logo');
     if (!img) return;
     if (!logo.master && !img.classList.contains('irvex-subaccount-logo')) logo.master = img.src;
     if (img.src !== url) img.src = url;
     img.classList.add('irvex-subaccount-logo');
   }
-  function cachedLogo(id) { try { return localStorage.getItem(LOGO_LS(id)); } catch (e) { return null; } }
+  const cachedLogo = (id) => { try { return localStorage.getItem(LOGO_LS(id)); } catch (e) { return null; } };
 
   function syncLogo() {
     const img = document.querySelector('img.agency-logo');
     if (img && !logo.master && !img.classList.contains('irvex-subaccount-logo')) logo.master = img.src;
-    if (!fx().subaccountLogo) { if (img && img.classList.contains('irvex-subaccount-logo')) restoreMasterLogo(); return; }
+    if (!v('sublogo.enabled')) { if (img && img.classList.contains('irvex-subaccount-logo')) restoreMasterLogo(); logo.loc = undefined; return; }
     const m = location.pathname.match(/\/location\/([^/]+)/);
     if (m) {
-      const id = m[1];
-      const cached = cachedLogo(id);
+      const id = m[1], cached = cachedLogo(id);
       if (id !== logo.loc || (img && cached && !img.classList.contains('irvex-subaccount-logo'))) {
         logo.loc = id;
         if (cached) applySubaccountLogo(cached); else restoreMasterLogo();
@@ -237,7 +221,7 @@
       if (validLogo(loc.logoUrl)) localStorage.setItem(LOGO_LS(loc.id), loc.logoUrl);
       else localStorage.removeItem(LOGO_LS(loc.id));
     } catch (e) { /* storage blocked */ }
-    if (location.pathname.indexOf(loc.id) !== -1) {
+    if (UC.live && location.pathname.indexOf(loc.id) !== -1) {
       if (validLogo(loc.logoUrl)) applySubaccountLogo(loc.logoUrl); else restoreMasterLogo();
     }
   });
@@ -248,15 +232,16 @@
   let pending = 0;
   function tick() {
     pending = 0;
-    if (UC.killed) return;
-    try { initSidebarNetwork(); initLoginNetwork(); syncLogo(); } catch (e) { /* never break GHL */ }
+    if (UC.killed || !UC.live) return;
+    try { initSidebarNetwork(); initLoginNetwork(); syncLoginText(); syncLogo(); } catch (e) { /* never break GHL */ }
   }
+  UC.refreshEffects = tick;
+  UC.onChange(() => { if (UC.live) tick(); });
   const mo = new MutationObserver(() => { if (!pending) pending = requestAnimationFrame(tick); });
-  function start() {
-    mo.observe(document.documentElement, { childList: true, subtree: true });
-    tick();
-  }
+  UC.onLive(() => {
+    const start = () => { mo.observe(document.documentElement, { childList: true, subtree: true }); tick(); };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  });
   const iv = setInterval(() => { if (UC.killed) { clearInterval(iv); mo.disconnect(); return; } tick(); }, 700);
-  UC.onKill(() => { mo.disconnect(); clearInterval(iv); restoreMasterLogo(); });
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  UC.onKill(() => { mo.disconnect(); clearInterval(iv); restoreMasterLogo(); const t = document.querySelector('.uc-login-tagline'); if (t) t.remove(); });
 })();

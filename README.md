@@ -1,103 +1,75 @@
 # Ultimate Customizer
 
-A licensed theme and effects package for HighLevel (GHL) agencies.
+A HighLevel Marketplace app (Target User: **Agency**) that lets an agency restyle its whole white-label CRM and login page from inside the CRM. It has 212 settings, 16 prebuilt themes and live preview, and every change saves automatically to MongoDB Atlas and reaches every user.
 
-* **HighLevel Marketplace app (Target User: Agency)** with OAuth 2.0. An agency admin installs it and their Company ID is licensed.
-* **Per-agency CSS and JS links.** Each agency gets its own `theme.css` (the IRVEX master CSS recolored with their settings) and `customizer.js` (network animations, click ripple, sub-account logo, sidebar renames and the in-app customizer).
-* **License check everywhere.** The links return an empty, inert file when the agency is not installed, is suspended, or loads them on a domain that isn't allowed. The script also turns itself off if the logged-in user belongs to a different company than the license.
-* **Public check page** (`/`): anyone can enter a Company ID and see whether it is licensed.
-* **Customer dashboard** (`/dashboard`): sign in with HighLevel, copy the two snippets, change colors and effects, manage the publish key and allowed domains.
-* **Super Admin panel** (`/admin/login`): every agency with its status, where its theme was seen, suspend/resume, manual licenses, a token check against HighLevel, key rotation and an activity log.
-
-## How it fits together
-
-```
-Agency admin installs app ──► /oauth/callback ──► token (userType=Company, companyId)
-                                                   │
-                                                   ▼
-                                     install record (companyId, asset key,
-                                     publish key hash, config, encrypted tokens)
-                                                   │
-HighLevel Custom CSS:  @import url(".../c/<key>/theme.css");   ◄─ licensed? config → CSS
-HighLevel Custom JS:   <script src=".../c/<key>/customizer.js"> ◄─ licensed? config → JS
-                                                   │
-In-app "Ultimate Customizer" (agency admins) ──► POST /api/publish (publish key) ──► new config
-```
-
-* `server/assets/base.css` is the master CSS. Each agency's CSS is generated from it by `shared/theme-engine.js`, the same engine the in-app live preview uses.
-* `client/` holds the browser code that is bundled into each agency's `customizer.js`: `runtime.js` (license guard, network hooks, preview layer), `effects.js` and `customizer.js`.
-* `UNINSTALL` webhooks are confirmed before a license is turned off. If no webhook signing key is configured, the server refreshes the agency token; HighLevel rejects the refresh once the app is uninstalled. A daily sweep does the same for every install, so a missed webhook is caught.
-
-## URLs
+## Pages
 
 | Page | URL |
 | --- | --- |
-| **Super Admin login** | `https://YOUR-DOMAIN/admin/login` (password = `ADMIN_PASSWORD`) |
-| Super Admin panel | `https://YOUR-DOMAIN/admin` |
-| Public license check | `https://YOUR-DOMAIN/` |
-| Customer dashboard | `https://YOUR-DOMAIN/dashboard` (sign in with HighLevel) |
-| OAuth redirect (put in the GHL app) | `https://YOUR-DOMAIN/oauth/callback` |
-| Webhook (put in the GHL app) | `https://YOUR-DOMAIN/webhooks/ghl` |
+| Home / support | `https://cuztomizer.ironix.dev/` |
+| Documentation | `/docs` |
+| Privacy Policy | `/privacy` |
+| Terms of Service | `/terms` |
+| **App page** (after HighLevel OAuth only) | `/app`: the two snippets and the connected domains |
+| **Super Admin login** | `/admin/login` (password = `ADMIN_PASSWORD`) |
+| OAuth redirect URL (put in the GHL app) | `/oauth/callback` |
+| Webhook URL (put in the GHL app) | `/webhooks/ghl` |
 
-## Deploy on Vercel + MongoDB Atlas
+## How it works
 
-1. **MongoDB Atlas**
-   * Create a cluster (the free M0 tier is enough to start) and a database user.
-   * *Network Access*: allow `0.0.0.0/0`, because Vercel functions don't have fixed IPs. You can also use the official Vercel ↔ MongoDB Atlas integration, which sets this up and adds `MONGODB_URI` for you.
-   * Copy the `mongodb+srv://...` connection string.
-2. **Vercel**
-   * Import this repository as a new project. No build settings are needed; `vercel.json` routes every request to `api/index.js`.
-   * Add these environment variables (Production):
+1. An agency admin installs the app. OAuth only accepts **Company** (agency) tokens, and lands them on `/app`.
+2. `/app` shows two snippets for *Agency Settings → Company*:
+   * Custom CSS: `@import url("…/c/<key>/theme.css");`
+   * Custom JS: `<script src="…/c/<key>/customizer.js"></script>`
+3. In the CRM, the profile menu shows **Connect Ultimate Customizer** above Sign out. Connecting opens a popup on this app where an admin of *that* agency approves after HighLevel sign-in. The domain is then bound to the license, and that browser gets a 30-day editor token.
+4. **Ultimate Customizer** opens the editor:
+   * **Themes**: 16 one-click designs
+   * **Colors**: the brand palette that every section follows
+   * **Sidebar**: background, menu text, network animation
+   * **Header**: buttons, avatar, dropdown, badges
+   * **Navigation**: top tabs, location switcher, banner
+   * **Content**: light/dark cards, inputs, buttons, alerts, headings
+   * **Login page**: layout, background image, logo, card, fields, heading/tagline, network, with a live preview overlay
+   * **Effects**: fonts, glow, blur, roundness, motion, ripple, loader, sub-account logo
+   * **Menu**: reorder, rename and hide sidebar items
+   * **Advanced**: section switches, custom CSS, backup/restore
+5. Edits preview instantly and autosave (`PUT /api/config`, about 0.7 s later). Open CRM tabs poll `/c/<key>/v.json` and repaint within a minute; other users get the change on their next load.
 
-     | Variable | Value |
-     | --- | --- |
-     | `MONGODB_URI` | Atlas connection string |
-     | `MONGODB_DB` | `ultimate_customizer` (optional) |
-     | `BASE_URL` | `https://YOUR-DOMAIN` (your custom domain, or `https://<project>.vercel.app`) |
-     | `GHL_CLIENT_ID` / `GHL_CLIENT_SECRET` | from the HighLevel app |
-     | `GHL_SCOPES` | `companies.readonly` |
-     | `ADMIN_PASSWORD` | Super Admin password, 10+ characters |
-     | `SESSION_SECRET` | 32+ random characters, e.g. `openssl rand -base64 48` |
-     | `CRON_SECRET` | random string; Vercel Cron sends it to `/api/cron/verify` |
+### Locking a purchase to one agency
 
-   * Deploy. If a variable is missing, every page shows which one.
-3. **HighLevel Marketplace app**
-   * Target User: **Agency**
-   * Redirect URL: `https://YOUR-DOMAIN/oauth/callback`
-   * Scopes: `companies.readonly`
-   * Webhook URL (recommended): `https://YOUR-DOMAIN/webhooks/ghl`, with the `INSTALL` and `UNINSTALL` events
-4. **Install**: the agency installs the app (or clicks *Install / Connect with HighLevel* on `/`). They land on `/dashboard`, which shows a one-time publish key and the two snippets for *Agency Settings → Company → Custom CSS / Custom JS*.
+| Layer | What it stops |
+| --- | --- |
+| **License gate**: files are inert unless the app is installed (OAuth/webhooks/daily cron) and not suspended | uninstalled or unpaid agencies |
+| **Domain binding**: the full CSS/JS is only served to domains approved by an admin of the licensed agency. The domain comes from the browser's `Origin`/`Referer`, never from request data | pasting the snippets into another agency's CRM |
+| **Runtime company check**: the script reads the signed-in user's `companyId` from HighLevel's own API responses and shuts everything off if it's another agency | the script running anywhere else |
+| **Shared HighLevel domains** (`app.gohighlevel.com`): the theme is fetched only after the company check passes | agencies sharing the same host |
+| **Monitoring**: unknown domains requesting the files appear as *Blocked attempts* in Super Admin, where you can suspend, rotate asset URLs or sign out editors | finding and stopping leaks |
 
-`vercel.json` also schedules a daily cron (`/api/cron/verify`) that re-checks installs with HighLevel, oldest first, to catch missed uninstall webhooks.
+Anything delivered to a browser can be copied by hand, so no web app can make CSS impossible to copy. These layers stop casual reuse and make deliberate copying visible.
 
-### What is stored in MongoDB
+### Code map
 
-* `installs`: one document per agency, with the Company ID, asset key, publish key hash, theme settings (colors, effects, sidebar, hidden selectors), allowed domains, the domains it was seen on, and encrypted HighLevel tokens.
-* `events`: the activity log, deleted automatically after 180 days.
+* `server/assets/theme.template.css`: the IRVEX master CSS with every value tokenized (`[[id]]`, `[[id/0.3]]`, `[[id*12px]]`). With default settings it reproduces the original CSS rule for rule.
+* `shared/registry.js`: every setting, the tabs and the themes. The UI is generated from it.
+* `shared/theme-engine.js`: validation and compilation, shared by the server and the browser.
+* `client/`: `runtime.js` (license guard, preview, saving, realtime), `effects.js` (networks, ripple, logo, login text), `customizer.js` (menu item, connect flow, editor).
+* `server/`: Express app, licensing, OAuth, bundler, views, and the MongoDB/file stores.
 
-Each agency's CSS and JS files are generated from its stored settings when they are requested, then cached in memory. That keeps them always in sync with the settings: a publish or suspension applies on the next page load.
+## Deploy (Vercel + MongoDB Atlas)
 
-### Running elsewhere / locally
+* **Atlas**: project *UltimateThemeCustomizer*, cluster *UltimateAtelier*, database `UltimateThemeCustomizer`.
+  * Network Access must allow Vercel: `0.0.0.0/0`, or use the Vercel ↔ Atlas integration.
+  * Collections and indexes are created automatically on first use, or run `npm run db:init` once with `MONGODB_URI` set.
+* **Vercel**: import the repo and set the environment variables from `.env.example` (`BASE_URL`, `MONGODB_URI`, `MONGODB_DB`, `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `CRON_SECRET`). Add the custom domain `cuztomizer.ironix.dev`. `vercel.json` routes everything to `api/index.js` and schedules the daily install check.
+* **HighLevel app**: Target User Agency, redirect `…/oauth/callback`, scope `companies.readonly`, webhook `…/webhooks/ghl` with INSTALL/UNINSTALL. Use `https://cuztomizer.ironix.dev/` as the support URL, `/privacy` and `/terms` for the legal links, and `/docs` for documentation.
+
+Secrets belong in Vercel's environment settings only. `.env` is gitignored.
+
+## Development
 
 ```bash
-cp .env.example .env   # fill it in; leave MONGODB_URI empty to use a local JSON file
 npm install
-npm start              # http://localhost:3000
+cp .env.example .env     # leave MONGODB_URI empty to use a local JSON file
+npm start                # http://localhost:3000
+npm test                 # set TEST_MONGODB_URI=mongodb://... to test against MongoDB
 ```
-
-Moving your own IRVEX agency over: install the app on your agency, then replace your current Custom CSS and Custom JS with the two snippets. Your old CSS is now `server/assets/base.css`, and your old JS effects are in `client/effects.js`. To hide `#sb_app-media` and `#sb_memberships` as before, add them under *Always hide* in the dashboard.
-
-## Editing a theme
-
-* **In HighLevel**: agency admins see *Ultimate Customizer* in the profile menu, with a live preview of colors, presets, effects, sidebar reorder/rename/hide and hidden selectors. Paste the publish key once in the Publish tab, then *Publish to all users*.
-* **Dashboard / admin panel**: quick color and effect settings, or the full JSON config.
-
-Assets are served with `Cache-Control: no-cache` and ETags. Every page load does a cheap revalidation, so publishes and suspensions apply on the next load.
-
-## Tests
-
-```bash
-npm test
-```
-
-The tests cover the theme engine and config sanitizing, plus the full OAuth → license → publish → domain lock → suspend → uninstall flow against a mocked HighLevel API. To run the same flow against MongoDB, set `TEST_MONGODB_URI=mongodb://...`.

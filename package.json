@@ -1,13 +1,14 @@
 {
   "name": "ultimate-customizer",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Licensed GoHighLevel agency theme customizer: Agency OAuth install, per-agency CSS/JS delivery, customer dashboard and admin panel.",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "db:init": "node scripts/init-db.js"
   },
   "engines": {
     "node": ">=18.17"
