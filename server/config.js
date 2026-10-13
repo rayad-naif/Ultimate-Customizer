@@ -1,0 +1,51 @@
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+// Minimal .env loader (no dependency). Real env vars win over the file.
+(function loadDotEnv() {
+  const file = path.join(__dirname, '..', '.env');
+  if (!fs.existsSync(file)) return;
+  fs.readFileSync(file, 'utf8').split(/\r?\n/).forEach((line) => {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (!m || process.env[m[1]] !== undefined) return;
+    let v = m[2];
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    process.env[m[1]] = v.replace(/\\n/g, '\n');
+  });
+})();
+
+const env = process.env;
+
+function load() {
+  const baseUrl = (env.BASE_URL || 'http://localhost:' + (env.PORT || 3000)).replace(/\/+$/, '');
+  return {
+    port: Number(env.PORT || 3000),
+    baseUrl,
+    secureCookies: baseUrl.startsWith('https://'),
+    dataDir: path.resolve(env.DATA_DIR || path.join(__dirname, '..', 'data')),
+    adminPassword: env.ADMIN_PASSWORD || '',
+    sessionSecret: env.SESSION_SECRET || '',
+    ghl: {
+      clientId: env.GHL_CLIENT_ID || '',
+      clientSecret: env.GHL_CLIENT_SECRET || '',
+      scopes: env.GHL_SCOPES || 'companies.readonly',
+      authUrl: env.GHL_AUTH_URL || 'https://marketplace.gohighlevel.com/oauth/chooselocation',
+      apiBase: (env.GHL_API_BASE || 'https://services.leadconnectorhq.com').replace(/\/+$/, ''),
+      apiVersion: env.GHL_API_VERSION || '2021-07-28',
+      webhookEd25519Key: env.GHL_WEBHOOK_ED25519_KEY || '',
+      webhookRsaKey: env.GHL_WEBHOOK_RSA_KEY || ''
+    },
+    redirectUri: baseUrl + '/oauth/callback'
+  };
+}
+
+function validate(cfg) {
+  const problems = [];
+  if (!cfg.sessionSecret || cfg.sessionSecret.length < 32) problems.push('SESSION_SECRET must be at least 32 characters');
+  if (!cfg.adminPassword || cfg.adminPassword.length < 10) problems.push('ADMIN_PASSWORD must be at least 10 characters');
+  if (!cfg.ghl.clientId || !cfg.ghl.clientSecret) problems.push('GHL_CLIENT_ID and GHL_CLIENT_SECRET are required');
+  return problems;
+}
+
+module.exports = { load, validate };

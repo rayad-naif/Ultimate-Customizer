@@ -1,0 +1,1535 @@
+/* ==========================================
+   1. SIDEBAR BASE
+========================================== */
+aside,
+.sidebar-v2,
+#sidebar-v2,
+.hl_sidebar {
+    background-color: #000414 !important; /* Deep Space Navy */
+}
+
+/* ==========================================
+   2. INTERACTIVE JS CLICK RIPPLE (Natural Drop)
+========================================== */
+/* Note: position: fixed is kept ONLY here so the ripple can float over the screen */
+.irvex-ripple-dynamic {
+    position: fixed;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(0, 229, 255, 0.5) 0%, rgba(0, 206, 209, 0.15) 40%, transparent 70%);
+    box-shadow: 0 0 40px rgba(0, 229, 255, 0.3), inset 0 0 20px rgba(0, 206, 209, 0.2);
+    transform: scale(0);
+    animation: naturalRippleEffect 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    pointer-events: none;
+    z-index: 999999;
+}
+
+@keyframes naturalRippleEffect {
+    0% { transform: scale(0.1); opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { transform: scale(4); opacity: 0; }
+}
+
+/* ==========================================
+   3. NAVIGATION MENU TEXT STYLING
+========================================== */
+span.nav-title {
+    font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.5px !important;
+    text-transform: capitalize !important;
+    color: #e6f7ff !important;
+    text-shadow: 0 0 4px rgba(0, 229, 255, 0.2) !important;
+    transition: all 0.3s ease-in-out !important;
+}
+
+a:hover span.nav-title,
+.nav-link:hover span.nav-title {
+    color: #00E5FF !important;
+    text-shadow: 0 0 8px rgba(0, 229, 255, 0.7), 0 0 16px rgba(0, 206, 209, 0.5) !important;
+    transform: translateX(5px) !important;
+    display: inline-block;
+}
+
+.active span.nav-title,
+a.router-link-exact-active span.nav-title {
+    color: #00CED1 !important;
+    font-weight: 700 !important;
+    text-shadow: 0 0 10px rgba(0, 206, 209, 0.6) !important;
+}
+
+/* ==========================================
+   4. LOCATION SWITCHER POPOVER
+========================================== */
+#location-list-containrer.lead-connector,
+.hl_location-switcher-popover .lead-connector {
+    background: transparent !important;
+    animation: none !important;
+}
+
+.hl_location-switcher-popover {
+    background-color: #000414 !important;
+    border: 1px solid #00CED1 !important;
+    box-shadow: 0 8px 32px rgba(0, 229, 255, 0.2) !important;
+    border-radius: 12px !important;
+}
+
+.hl_v2_tip-arrow::before {
+    background-color: #000414 !important;
+    border-top: 1px solid #00CED1 !important;
+    border-left: 1px solid #00CED1 !important;
+}
+
+.hl_location-switcher-popover input[type="search"] {
+    background-color: #001a33 !important;
+    color: #00E5FF !important;
+    border: 1px solid rgba(0, 206, 209, 0.4) !important;
+    border-radius: 6px !important;
+    transition: all 0.3s ease !important;
+}
+
+.hl_location-switcher-popover input[type="search"]::placeholder {
+    color: rgba(0, 229, 255, 0.4) !important;
+}
+
+.hl_location-switcher-popover input[type="search"]:focus {
+    border-color: #00E5FF !important;
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.4) !important;
+}
+
+.hl_location-switcher-popover .search-area svg {
+    color: #00CED1 !important;
+}
+
+#switcher-agency-switch {
+    color: #00E5FF !important;
+    border-bottom: 1px solid rgba(0, 206, 209, 0.2) !important;
+    transition: color 0.3s ease !important;
+}
+
+#switcher-agency-switch:hover {
+    color: #00CED1 !important;
+    text-shadow: 0 0 8px rgba(0, 229, 255, 0.5) !important;
+}
+
+#switcher-agency-switch svg rect { fill: rgba(0, 206, 209, 0.2) !important; }
+#switcher-agency-switch svg path { stroke: #00E5FF !important; }
+
+/* Individual Location Accounts */
+.hl_account {
+    transition: all 0.3s ease-in-out !important;
+    border-radius: 6px !important;
+    background: transparent !important;
+    margin-bottom: 4px !important;
+}
+
+.hl_account:hover,
+.hl_account.active {
+    background-color: rgba(0, 229, 255, 0.1) !important;
+    transform: translateX(4px) !important;
+    box-shadow: -3px 0 0 #00E5FF !important;
+}
+
+.hl_location-title {
+    color: #00E5FF !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.5px !important;
+}
+
+.hl_account span:not(.hl_location-title) {
+    color: #8ab4f8 !important;
+}
+
+.hl_account .bg-gray-200 {
+    background-color: #001a33 !important;
+    color: #00E5FF !important;
+    border: 1px solid #00CED1 !important;
+    box-shadow: 0 0 8px rgba(0, 206, 209, 0.3) !important;
+}
+
+.hl_home-container svg,
+.hl_pinned-container svg path {
+    color: #00CED1 !important;
+    fill: #00CED1 !important;
+    stroke: #00CED1 !important;
+    transition: all 0.3s ease !important;
+}
+
+.hl_account:hover .hl_pinned-container svg path {
+    fill: #00E5FF !important;
+    filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.8));
+}
+/* ==========================================
+   NOTIFICATION BANNER (LUMINOUS GLASS)
+========================================== */
+
+/* Main Banner Container */
+#notification_banner-top_bar {
+    /* Brighter, highly visible gradient pushing the Rich Teal and Data Cyan */
+    background: linear-gradient(90deg, rgba(0, 30, 60, 0.85) 0%, rgba(0, 206, 209, 0.75) 50%, rgba(0, 30, 60, 0.85) 100%) !important;
+    background-size: 200% 100% !important;
+    animation: bannerPan 8s linear infinite !important;
+
+    /* Premium Frosty Glassmorphism */
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+
+    /* Bright Neon Cyan Border & Glow */
+    border-bottom: 1px solid #00E5FF !important;
+    box-shadow: 0 10px 30px rgba(0, 229, 255, 0.25), inset 0 0 20px rgba(0, 229, 255, 0.1) !important;
+
+    color: #ffffff !important;
+    font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+/* Background Panning Animation */
+@keyframes bannerPan {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 100% 50%; }
+}
+
+/* Primary Text and Links */
+#notification_banner-top_bar a,
+#notification_banner-top_bar span,
+#notification_banner-top_bar div {
+    color: #ffffff !important; /* Crisp white for high contrast */
+    font-weight: 600 !important;
+    letter-spacing: 0.5px !important;
+
+    /* Dark text shadow ensures readability over the bright teal center */
+    text-shadow: 0 2px 4px rgba(0, 4, 20, 0.8) !important;
+    transition: all 0.3s ease-in-out !important;
+}
+
+/* Highlight Actionable Links with Gold on Hover */
+#notification_banner-top_bar a:hover {
+    color: #FFD700 !important; /* IRVEX Gold */
+    text-shadow: 0 0 12px rgba(255, 215, 0, 1) !important;
+}
+
+/* Icons and Close Button */
+#notification_banner-top_bar svg,
+#notification_banner-top_bar button {
+    color: #00E5FF !important; /* Data Cyan */
+    fill: currentColor !important;
+    transition: all 0.3s ease !important;
+    cursor: pointer !important;
+    filter: drop-shadow(0 2px 4px rgba(0, 4, 20, 0.8)) !important;
+}
+
+/* Interactive Icon Hover */
+#notification_banner-top_bar svg:hover,
+#notification_banner-top_bar button:hover {
+    color: #FFD700 !important; /* Shifts to Gold */
+    filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.9)) !important;
+    transform: scale(1.15) !important;
+}
+
+/* ==========================================
+   HIGH-VISIBILITY CLOSE BUTTON
+========================================== */
+
+/* Overriding GHL's default faded opacity and styling the button */
+#notification_banner-top_bar button {
+    opacity: 1 !important; /* Forces the button to be 100% solid */
+    color: #ffffff !important; /* Pure white X */
+
+    /* Dark glass circle background to separate it from the bright banner */
+    background: rgba(0, 4, 20, 0.6) !important;
+    border: 1px solid rgba(0, 229, 255, 0.5) !important;
+    border-radius: 50% !important;
+
+    /* Perfect circular sizing */
+    width: 28px !important;
+    height: 28px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    box-shadow: 0 4px 10px rgba(0, 4, 20, 0.4) !important;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    cursor: pointer !important;
+}
+
+/* Hover Effect: Turns Solid Gold */
+#notification_banner-top_bar button:hover {
+    color: #000414 !important; /* Deep Space Navy X */
+    background: #FFD700 !important; /* Solid IRVEX Gold */
+    border-color: #FFD700 !important;
+
+    /* Intense Gold Glow */
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.8) !important;
+    transform: scale(1.15) !important;
+}
+
+/* Base SVG Icon styling (for other icons in the banner, if any) */
+#notification_banner-top_bar svg {
+    color: #ffffff !important;
+    filter: drop-shadow(0 2px 4px rgba(0, 4, 20, 0.8)) !important;
+    transition: all 0.3s ease !important;
+}
+
+#notification_banner-top_bar svg:hover {
+    color: #FFD700 !important;
+    filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.9)) !important;
+}
+/* ==========================================
+   IRVEX CRM: SPLIT-SCREEN LOGIN OVERRIDES
+========================================== */
+/* 1. Break out of GHL's default centered box */
+body:has(.hl_login),
+.pmd-app__side-dock-main-surface,
+.flex.v2-open.sidebar-v2-agency {
+    width: 100vw !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background-color: #000414 !important;
+}
+
+/* 2. The Split Screen Container */
+.hl_login {
+    display: flex !important;
+    flex-direction: row-reverse !important; /* Puts Logo on Right, Form on Left */
+    width: 100vw !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+}
+
+/* ==========================================
+   RIGHT SIDE: Pure CSS Red & Gold Cyber-Mesh
+========================================== */
+.hl_login--header {
+    width: 50vw !important;
+    height: 100vh !important;
+    position: relative !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background-color: #000414 !important; /* Deep Space Navy Base */
+
+    /* 1. Moving Red & Gold Aurora Orbs
+       2. Interlocking Tech Grid (Simulating Network Lines) */
+    background-image:
+        radial-gradient(circle at 20% 50%, rgba(255, 30, 40, 0.15) 0%, transparent 60%),
+        radial-gradient(circle at 80% 50%, rgba(255, 215, 0, 0.12) 0%, transparent 60%),
+        linear-gradient(rgba(255, 30, 40, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 215, 0, 0.06) 1px, transparent 1px) !important;
+
+    background-size:
+        200% 200%,
+        200% 200%,
+        45px 45px, /* Grid Square Size */
+        45px 45px !important;
+
+    /* Smooth, continuous diagonal panning */
+    animation: cyberMeshPan 15s linear infinite !important;
+
+    box-shadow: inset 15px 0 30px rgba(0, 0, 0, 0.6) !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    border: none !important;
+    transition: all 0.5s ease !important;
+}
+
+/* Hover Interaction: Intensify the network when the mouse enters the right half */
+.hl_login--header:hover {
+    background-image:
+        radial-gradient(circle at 20% 50%, rgba(255, 30, 40, 0.25) 0%, transparent 60%),
+        radial-gradient(circle at 80% 50%, rgba(255, 215, 0, 0.2) 0%, transparent 60%),
+        linear-gradient(rgba(255, 30, 40, 0.15) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 215, 0, 0.15) 1px, transparent 1px) !important;
+}
+
+/* Network Grid Animation */
+@keyframes cyberMeshPan {
+    0% { background-position: 0% 50%, 100% 50%, 0 0, 0 0; }
+    50% { background-position: 100% 50%, 0% 50%, 22px 22px, 22px 22px; }
+    100% { background-position: 0% 50%, 100% 50%, 45px 45px, 45px 45px; }
+}
+
+/* Fix GHL's internal container so it centers the logo */
+.hl_login--header .container-fluid {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: relative !important;
+    z-index: 10 !important;
+    height: 100% !important;
+    width: 100% !important;
+}
+
+/* ==========================================
+   THE LOGO ENCLOSURE (Sleek Glassmorphism)
+========================================== */
+.hl_login--header img {
+    max-height: 220px !important;
+    border-radius: 20px !important;
+    padding: 35px !important;
+
+    /* Subtle dark glass backing */
+    background: rgba(0, 10, 26, 0.4) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+
+    /* Muted baseline border and shadow */
+    border: 1px solid rgba(0, 206, 209, 0.15) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+
+    /* Smooth, linear transition */
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    cursor: pointer !important;
+}
+
+/* Elegant Cyber-Glow Hover Effect */
+.hl_login--header img:hover {
+    /* Smooth vertical lift */
+    transform: translateY(-10px) !important;
+
+    /* Illuminates with Data Cyan */
+    background: rgba(0, 229, 255, 0.05) !important;
+    border: 1px solid rgba(0, 229, 255, 0.7) !important;
+
+    /* Layered glowing shadows for a neon tube effect */
+    box-shadow:
+        0 20px 40px rgba(0, 0, 0, 0.7),
+        0 0 30px rgba(0, 229, 255, 0.2),
+        inset 0 0 25px rgba(0, 229, 255, 0.15) !important;
+}
+/* Language Dropdown Adjustment */
+.language-dropdown-container {
+    position: absolute !important;
+    top: 30px !important;
+    right: 30px !important;
+    background: rgba(0, 4, 20, 0.6) !important;
+    padding: 10px 15px !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(0, 206, 209, 0.3) !important;
+    backdrop-filter: blur(8px) !important;
+}
+.language-dropdown-container select { background-color: transparent !important; color: #00E5FF !important; }
+.language-dropdown-container .language-label { color: #00CED1 !important; }
+
+/* ==========================================
+   LEFT SIDE: Glassmorphism Login Form
+========================================== */
+.hl_login--body {
+    width: 50vw !important;
+    height: 100vh !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: relative !important;
+    background-color: #000414 !important;
+    margin: 0 !important;
+}
+
+.hl_login--body::before {
+    content: '';
+    position: absolute;
+    width: 60%;
+    height: 60%;
+    background: radial-gradient(circle, rgba(0, 206, 209, 0.1) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.hl_login--body .container-fluid {
+    width: 100% !important;
+    max-width: 450px !important;
+    z-index: 10 !important;
+}
+
+.hl_login--body .card {
+    background: rgba(0, 10, 26, 0.8) !important;
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
+    border: 1px solid rgba(0, 229, 255, 0.2) !important;
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5), inset 0 0 15px rgba(0, 206, 209, 0.1) !important;
+    border-radius: 24px !important;
+}
+
+.hl_login--body .card-body { padding: 40px 35px !important; }
+
+/* Typography & Inputs */
+.login-card-heading h2 { color: #00E5FF !important; text-align: center !important; font-weight: 700 !important; margin-bottom: 30px !important; }
+.hl-text-input-label { color: #00CED1 !important; font-size: 11px !important; font-weight: 600 !important; text-transform: uppercase !important; }
+
+.hl-text-input {
+    background-color: rgba(0, 26, 51, 0.7) !important;
+    border: 1px solid rgba(0, 206, 209, 0.4) !important;
+    color: #00E5FF !important;
+    border-radius: 8px !important;
+    padding: 14px 16px !important;
+    transition: all 0.3s ease !important;
+}
+
+.hl-text-input:focus {
+    border-color: #00E5FF !important;
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.4) !important;
+    background-color: rgba(0, 30, 60, 0.9) !important;
+}
+
+/* Buttons */
+button[type="submit"].hl-btn {
+    background: linear-gradient(135deg, #00CED1 0%, #00E5FF 100%) !important;
+    color: #000414 !important;
+    font-weight: 800 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1.5px !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 16px !important;
+    margin-top: 10px !important;
+    transition: all 0.3s ease !important;
+}
+button[type="submit"].hl-btn:hover { box-shadow: 0 0 25px rgba(0, 229, 255, 0.5) !important; transform: translateY(-2px) !important; }
+
+#wl_google_login_button {
+    background: transparent !important;
+    border: 1px solid rgba(0, 206, 209, 0.5) !important;
+    color: #00E5FF !important;
+    border-radius: 8px !important;
+}
+#wl_google_login_button:hover { background: rgba(0, 229, 255, 0.1) !important; box-shadow: 0 0 15px rgba(0, 229, 255, 0.2) !important; }
+
+.forgot-password, .foot-note a { color: #FFD700 !important; transition: all 0.3s ease !important; }
+.forgot-password:hover, .foot-note a:hover { color: #00E5FF !important; text-shadow: 0 0 8px rgba(0, 229, 255, 0.6) !important; }
+
+@keyframes floatLogo {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-15px); }
+    100% { transform: translateY(0px); }
+}
+
+/* Responsive Stack for Mobile */
+@media (max-width: 992px) {
+    .hl_login { flex-direction: column !important; overflow-y: auto !important; }
+    .hl_login--header, .hl_login--body { width: 100vw !important; height: auto !important; min-height: 50vh !important; }
+}
+
+/* ==========================================
+   IRVEX CRM: HEADER CONTROLS & DROPDOWN
+========================================== */
+
+/* 1. Header Button Base (Glassmorphism & Neon Borders) */
+.hl_header--controls a.btn,
+.hl_header--controls button,
+#hl_header--copilot-icon,
+#hl_header--help-icon,
+a.hl_header--recent-activities,
+a.btn-changelog,
+#template-power-dialer button {
+    background: rgba(0, 10, 26, 0.6) !important;
+    background-color: rgba(0, 10, 26, 0.6) !important; /* Override inline styles */
+    border: 1px solid rgba(0, 206, 209, 0.3) !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    color: #00E5FF !important; /* Data Cyan */
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* Force standard icon colors */
+.hl_header--controls a.btn i,
+.hl_header--controls a.btn svg,
+#template-power-dialer button svg,
+#hl_header--copilot-icon svg,
+#hl_header--help-icon i,
+a.hl_header--recent-activities i {
+    color: #00E5FF !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+    transition: all 0.3s ease !important;
+}
+
+/* 2. Interactive Hover States (Glows IRVEX Gold) */
+.hl_header--controls a.btn:hover,
+#template-power-dialer button:hover,
+#hl_header--copilot-icon:hover,
+#hl_header--help-icon:hover,
+a.hl_header--recent-activities:hover,
+a.btn-changelog:hover {
+    background: rgba(0, 229, 255, 0.1) !important;
+    background-color: rgba(0, 229, 255, 0.1) !important;
+    border-color: #00E5FF !important;
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.4), inset 0 0 10px rgba(0, 229, 255, 0.2) !important;
+    transform: translateY(-2px) !important;
+}
+
+.hl_header--controls a.btn:hover i,
+.hl_header--controls a.btn:hover svg,
+#template-power-dialer button:hover svg,
+#hl_header--copilot-icon:hover svg,
+#hl_header--help-icon:hover i,
+a.hl_header--recent-activities:hover i {
+    color: #FFD700 !important; /* IRVEX Gold */
+    filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.8)) !important;
+}
+
+/* 3. Notification & Alert Badges */
+.Canny_Badge,
+.n-badge--dot .n-badge-sup {
+    background-color: #FFD700 !important; /* Gold Alerts */
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.9) !important;
+    border: 1px solid #000414 !important; /* Navy separator */
+}
+
+/* 4. "Get Started" / Feature Discovery Pill */
+.feature-discovery-main-container .bg-primary-50 {
+    background: rgba(0, 10, 26, 0.6) !important;
+    border: 1px solid rgba(0, 229, 255, 0.3) !important;
+    backdrop-filter: blur(8px) !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+}
+
+.feature-discovery-main-container .bg-primary-600 {
+    background: linear-gradient(135deg, #00CED1 0%, #00E5FF 100%) !important;
+    color: #000414 !important;
+    font-weight: 700 !important;
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.4) !important;
+}
+
+/* ==========================================
+   USER PROFILE AVATAR & DROPDOWN MENU
+========================================== */
+
+/* 1. The Avatar Circle */
+.hl_header--avatar .avatar_img,
+.user-info-card .avatar_img {
+    background: linear-gradient(135deg, #001a33 0%, #000414 100%) !important;
+    background-color: transparent !important; /* Override inline colors */
+    border: 1px solid #00E5FF !important;
+    color: #00E5FF !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px !important;
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.3) !important;
+    transition: all 0.3s ease !important;
+}
+
+.hl_header--avatar:hover .avatar_img {
+    border-color: #FFD700 !important;
+    color: #FFD700 !important;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.5) !important;
+    transform: scale(1.05) !important;
+}
+
+/* 2. Frosted Glass Dropdown Panel */
+.hl_header--dropdown .dropdown-menu {
+    background: rgba(0, 10, 26, 0.85) !important; /* Deep Space Navy */
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
+    border: 1px solid rgba(0, 206, 209, 0.4) !important;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 25px rgba(0, 229, 255, 0.15) !important;
+    border-radius: 16px !important;
+    padding: 12px 0 !important;
+    margin-top: 10px !important;
+}
+
+/* 3. User Info Section (Inside Dropdown) */
+.user-info-card .text-gray-900:not(.text-xs) {
+    color: #e6f7ff !important; /* Bright crisp text for the name */
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.5px !important;
+}
+
+.user-info-card .text-xs.text-gray-900 {
+    color: #00CED1 !important; /* Rich Teal for the email */
+    font-weight: 400 !important;
+}
+
+/* 4. Dropdown Menu Items */
+.dropdown-menu .dropdown-item {
+    color: #00E5FF !important; /* Data Cyan */
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 500 !important;
+    background: transparent !important;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    padding: 10px 24px !important;
+}
+
+/* 5. Dropdown Hover Interactions */
+.dropdown-menu .dropdown-item:hover,
+.dropdown-menu .dropdown-item:focus {
+    background: rgba(0, 229, 255, 0.1) !important;
+    color: #FFD700 !important; /* Shift to Gold */
+    padding-left: 30px !important; /* Sleek structural indentation on hover */
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.5) !important;
+}
+
+.dropdown-menu .dropdown-item i {
+    color: inherit !important;
+    transition: all 0.3s ease !important;
+}
+
+/* 6. Dividers */
+.dropdown-menu .dropdown-divider {
+    border-top: 1px solid rgba(0, 206, 209, 0.15) !important;
+    margin: 8px 0 !important;
+}
+/* ==========================================
+   IRVEX CRM: TOP NAVIGATION MENU
+========================================== */
+
+/* 1. Main Navigation Container (Frosted Navy Glass) */
+.topmenu-nav {
+    background: rgba(0, 10, 26, 0.7) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-bottom: 1px solid rgba(0, 206, 209, 0.2) !important;
+    padding-top: 12px !important;
+    padding-left: 20px !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+    margin-bottom: 15px !important;
+}
+
+/* 2. Section Title (e.g., "Calendars") */
+.topmenu-navtitle {
+    color: #ffffff !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 800 !important;
+    font-size: 1.1rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1.5px !important;
+    margin-right: 24px !important;
+    text-shadow: 0 0 15px rgba(0, 229, 255, 0.5) !important;
+}
+
+/* 3. Base Tab Styling */
+a.topmenu-navitem {
+    color: #00CED1 !important; /* Muted Rich Teal */
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.5px !important;
+    transition: all 0.3s ease !important;
+    position: relative !important;
+    padding-bottom: 12px !important;
+    overflow: visible !important;
+}
+
+/* 4. The Animated Underline Engine */
+a.topmenu-navitem::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; /* Aligns exactly over the container's bottom border */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0%;
+    height: 3px;
+    background: #00E5FF;
+    border-radius: 3px 3px 0 0;
+    transition: width 0.3s cubic-bezier(0.25, 1, 0.5, 1), background-color 0.3s ease, box-shadow 0.3s ease !important;
+    box-shadow: 0 -2px 10px rgba(0, 229, 255, 0);
+}
+
+/* 5. Hover Interaction (Cyan Slide-Out) */
+a.topmenu-navitem:hover {
+    color: #00E5FF !important; /* Bright Data Cyan */
+    text-shadow: 0 0 8px rgba(0, 229, 255, 0.6) !important;
+}
+
+a.topmenu-navitem:hover::after {
+    width: 80%;
+    box-shadow: 0 -2px 10px rgba(0, 229, 255, 0.8);
+}
+
+/* 6. Active Tab Interaction (Solid Gold Lock) */
+a.topmenu-navitem.active {
+    color: #FFD700 !important; /* IRVEX Gold */
+    text-shadow: 0 0 12px rgba(255, 215, 0, 0.8) !important;
+}
+
+a.topmenu-navitem.active::after {
+    width: 100%;
+    background: #FFD700 !important;
+    box-shadow: 0 -2px 15px rgba(255, 215, 0, 1) !important;
+}
+
+/* 7. Icons inside tabs */
+a.topmenu-navitem img,
+a.topmenu-navitem svg {
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    opacity: 0.7 !important;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)) !important;
+}
+
+a.topmenu-navitem:hover img,
+a.topmenu-navitem:hover svg,
+a.topmenu-navitem.active img,
+a.topmenu-navitem.active svg {
+    opacity: 1 !important;
+    transform: scale(1.15) !important;
+}
+
+/* 8. Vertical Divider */
+span.divider.topmenu-navitem {
+    width: 2px !important;
+    height: 18px !important;
+    background: rgba(0, 206, 209, 0.2) !important;
+    margin: 0 15px !important;
+    border-radius: 2px !important;
+    box-shadow: 0 0 5px rgba(0, 229, 255, 0.1) !important;
+    align-self: center !important;
+    padding: 0 !important; /* Overrides GHL's native padding */
+}
+/* ==========================================
+   IRVEX CRM: LOADER BACKGROUND & 4-DIV RINGS
+========================================== */
+
+/* 1. Loader Background Container */
+.hl-loader-container:not([style*="display: none"]) {
+    background-color: #000414 !important; /* Deep Space Navy */
+    background-image: radial-gradient(circle at center, #001a33 0%, #000414 100%) !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 9999999 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* 2. The lds-ring Container Track */
+.lds-ring {
+    display: inline-block !important;
+    position: relative !important;
+    width: 80px !important;
+    height: 80px !important;
+}
+
+/* 3. Styling the 4 Child Divs into a Neon Tech Spinner */
+.lds-ring div {
+    box-sizing: border-box !important;
+    display: block !important;
+    position: absolute !important;
+    width: 64px !important;
+    height: 64px !important;
+    margin: 8px !important;
+    border: 4px solid transparent !important;
+    border-radius: 50% !important;
+    animation: lds-ring 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite !important;
+    /* IRVEX Data Cyan and Gold Glow */
+    border-color: #00E5FF transparent transparent transparent !important;
+    filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.4)) !important;
+}
+
+/* Staggering the animation timing for each of the 4 divs */
+.lds-ring div:nth-child(1) {
+    animation-delay: -0.45s !important;
+}
+.lds-ring div:nth-child(2) {
+    animation-delay: -0.3s !important;
+    border-color: #00CED1 transparent transparent transparent !important;
+}
+.lds-ring div:nth-child(3) {
+    animation-delay: -0.15s !important;
+    border-color: #FFD700 transparent transparent transparent !important; /* IRVEX Gold Highlight */
+}
+
+@keyframes lds-ring {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+/* ==========================================
+   IRVEX CRM: SUBACCOUNT LOGO FORMATTING
+========================================== */
+
+/* Ensures the dynamically injected subaccount logo stays contained */
+img.agency-logo.irvex-subaccount-logo {
+    max-width: 85% !important;
+    height: 45px !important;
+    object-fit: contain !important; /* Prevents aspect-ratio stretching */
+    border-radius: 8px !important;
+    padding: 2px !important;
+    transition: all 0.3s ease !important;
+
+    /* Optional: Subtle glow to match the IRVEX aesthetic */
+    filter: drop-shadow(0 4px 10px rgba(0, 229, 255, 0.15)) !important;
+}
+
+/* Slight hover effect for the logo in the sidebar */
+img.agency-logo.irvex-subaccount-logo:hover {
+    filter: drop-shadow(0 4px 15px rgba(0, 229, 255, 0.4)) !important;
+    transform: scale(1.02) !important;
+}
+/* ==========================================
+   IRVEX CRM: LIGHT WRAPPER & GLOWING TYPOGRAPHY
+========================================== */
+
+/* 1. Main Wrapper (Light, Readable Background) */
+.hr-wrapper-container {
+    background: #F4F7FA !important; /* Soft, frosted light background */
+    border: 1px solid rgba(0, 206, 209, 0.2) !important;
+    border-radius: 12px !important;
+    padding: 24px !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05) !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Ensure standard text is dark and readable */
+.hr-wrapper-container p,
+.hr-wrapper-container label,
+.hr-wrapper-container li,
+.hr-wrapper-container td,
+.hr-wrapper-container span:not(.n-badge-sup) {
+    color: #000414 !important; /* Deep Navy for high contrast */
+    font-weight: 500 !important;
+}
+
+/* 2. Glowing Gradient Headings */
+.hr-wrapper-container h1,
+.hr-wrapper-container h2,
+.hr-wrapper-container h3,
+.hr-wrapper-container h4,
+.hr-wrapper-container h5,
+.hr-wrapper-container h6 {
+    /* Liquid gradient fill */
+    background: linear-gradient(135deg, #00CED1 0%, #00E5FF 50%, #FFD700 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    color: transparent !important; /* Fallback */
+
+    /* Subtle neon aura */
+    text-shadow: 0 4px 15px rgba(0, 229, 255, 0.2) !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.5px !important;
+    margin-bottom: 15px !important;
+}
+
+/* ==========================================
+   INTERACTIVE BUTTONS (hr-button)
+========================================== */
+
+/* 3. Primary Tech Button Styling */
+.hr-wrapper-container .hr-button.hr-button--primary-type {
+    background: #000414 !important; /* Deep Space Navy Base */
+    border: 1px solid #00E5FF !important;
+    border-radius: 8px !important;
+    padding: 10px 24px !important;
+    box-shadow: 0 4px 15px rgba(0, 229, 255, 0.2) !important;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    cursor: pointer !important;
+}
+
+/* Force Cyan text on the button and any nested spans/divs inside it */
+.hr-wrapper-container .hr-button.hr-button--primary-type,
+.hr-wrapper-container .hr-button.hr-button--primary-type * {
+    color: #00E5FF !important; /* Data Cyan Text */
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px !important;
+}
+
+/* 4. Button Hover State (Turns Solid IRVEX Gold) */
+.hr-wrapper-container .hr-button.hr-button--primary-type:hover {
+    background: #FFD700 !important;
+    border-color: #FFD700 !important;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.6), inset 0 0 10px rgba(255, 255, 255, 0.3) !important;
+    transform: translateY(-3px) !important;
+}
+
+/* Force Navy text on hover for all nested elements */
+.hr-wrapper-container .hr-button.hr-button--primary-type:hover,
+.hr-wrapper-container .hr-button.hr-button--primary-type:hover * {
+    color: #000414 !important;
+}
+
+/* Standard/Secondary hr-buttons */
+.hr-wrapper-container .hr-button:not(.hr-button--primary-type) {
+    background: transparent !important;
+    border: 1px solid rgba(0, 206, 209, 0.4) !important;
+    transition: all 0.3s ease !important;
+}
+
+.hr-wrapper-container .hr-button:not(.hr-button--primary-type),
+.hr-wrapper-container .hr-button:not(.hr-button--primary-type) * {
+    color: #00CED1 !important;
+}
+
+.hr-wrapper-container .hr-button:not(.hr-button--primary-type):hover {
+    background: rgba(0, 229, 255, 0.1) !important;
+    border-color: #00E5FF !important;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2) !important;
+}
+
+.hr-wrapper-container .hr-button:not(.hr-button--primary-type):hover,
+.hr-wrapper-container .hr-button:not(.hr-button--primary-type):hover * {
+    color: #00E5FF !important;
+}
+
+/* ==========================================
+   IRVEX CRM: GHL STRUCTURE PATCHES
+========================================== */
+
+/* 1. Reset the wrapper when it's inside the Header/Power Dialer */
+#template-power-dialer .hr-wrapper-container,
+.hl_header--controls .hr-wrapper-container,
+.hr-wrapper-container.p-0 {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+}
+
+/* 2. Target GHL's specific div-based headings (like "Invoices") */
+.hr-wrapper-container .title,
+.hr-wrapper-container [class*="hl-display-"],
+.hr-wrapper-container [class*="hl-text-lg"] {
+    /* Liquid gradient fill */
+    background: linear-gradient(135deg, #00CED1 0%, #00E5FF 50%, #FFD700 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    color: transparent !important;
+
+    /* Subtle neon aura */
+    text-shadow: 0 4px 15px rgba(0, 229, 255, 0.2) !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.5px !important;
+}
+
+/* ==========================================
+   IRVEX CRM: BUSINESS PROFILE SETTINGS
+========================================== */
+
+/* 1. Main Page Background & Text Reset */
+.w-full.p-2.pb-8,
+.hl-display-sm-medium,
+.hl-text-md-normal,
+.text-gray-500,
+.text-gray-700,
+.hl-text-sm-medium,
+.hl-text-sm-normal,
+.hl-text-xs-medium,
+.hl-text-xs-regular,
+.n-form-item-label__text,
+.n-checkbox__label,
+.btn-text,
+.hl-text-sm-regular {
+    color: #e6f7ff !important; /* Soft white/cyan text for readability on dark backgrounds */
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* Page Title Glowing Effect */
+.hl-display-sm-medium:first-child {
+    background: linear-gradient(135deg, #00CED1 0%, #00E5FF 50%, #FFD700 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    color: transparent !important;
+    text-shadow: 0 4px 15px rgba(0, 229, 255, 0.2) !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.5px !important;
+}
+
+/* 2. Cards (hl-card) Styling */
+.hl-card {
+    background: rgba(0, 10, 26, 0.6) !important; /* Deep Space Navy Frosted Glass */
+    border: 1px solid rgba(0, 229, 255, 0.3) !important;
+    border-radius: 12px !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+    margin-bottom: 20px !important;
+    overflow: hidden !important;
+    transition: all 0.3s ease !important;
+}
+
+.hl-card:hover {
+    border-color: #00E5FF !important;
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.15) !important;
+}
+
+/* Card Headers */
+.hl-card-header {
+    background: rgba(0, 4, 20, 0.8) !important; /* Darker header section */
+    border-bottom: 1px solid rgba(0, 206, 209, 0.2) !important;
+    padding: 15px 20px !important;
+}
+
+.hl-card-header .hl-text-md-normal {
+    color: #00E5FF !important; /* Data Cyan Headers */
+    font-weight: 700 !important;
+    letter-spacing: 0.5px !important;
+}
+
+/* Card Footers */
+.hl-card-footer {
+    background: rgba(0, 4, 20, 0.5) !important;
+    border-top: 1px solid rgba(0, 206, 209, 0.2) !important;
+    padding: 15px 20px !important;
+}
+
+/* ==========================================
+   FORM INPUTS & DROPDOWNS
+========================================== */
+
+/* Base Input Styling */
+.n-input,
+.n-base-selection {
+    background: rgba(0, 4, 20, 0.7) !important; /* Dark inner background */
+    border: 1px solid rgba(0, 206, 209, 0.4) !important;
+    border-radius: 6px !important;
+    color: #00E5FF !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Input Hover & Focus */
+.n-input:hover,
+.n-base-selection:hover,
+.n-input--stateful.n-input--focus,
+.n-base-selection--active {
+    border-color: #00E5FF !important;
+    background: rgba(0, 10, 26, 0.9) !important;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.3) !important;
+}
+
+/* Input Text Color & Placeholders */
+.n-input__input-el,
+.n-base-selection-input,
+.n-base-selection-overlay__wrapper,
+.n-base-selection-input__content {
+    color: #00E5FF !important; /* Cyan text typing */
+    caret-color: #FFD700 !important; /* Gold Cursor */
+}
+
+.n-input__placeholder span,
+.n-base-selection-placeholder__inner {
+    color: rgba(0, 206, 209, 0.5) !important; /* Muted teal placeholders */
+}
+
+/* Read-only / Disabled Inputs */
+.n-input--disabled {
+    background: rgba(0, 0, 0, 0.4) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    opacity: 0.7 !important;
+}
+
+.n-input--disabled .n-input__input-el {
+    color: #666 !important;
+}
+
+/* Form Labels & Asterisks */
+.n-form-item-label__text {
+    color: #00CED1 !important; /* Rich Teal Labels */
+    font-weight: 600 !important;
+}
+.n-form-item-label__asterisk {
+    color: #FFD700 !important; /* Gold Asterisk */
+}
+
+/* ==========================================
+   BUTTONS
+========================================== */
+
+/* Primary Action Buttons (e.g., Update Information) */
+.n-button--primary-type {
+    background: #000414 !important;
+    color: #00E5FF !important;
+    border: 1px solid #00E5FF !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px !important;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    box-shadow: 0 4px 15px rgba(0, 229, 255, 0.2) !important;
+}
+
+.n-button--primary-type:hover {
+    background: #FFD700 !important;
+    color: #000414 !important;
+    border-color: #FFD700 !important;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.6), inset 0 0 10px rgba(255, 255, 255, 0.3) !important;
+    transform: translateY(-2px) !important;
+}
+
+.n-button--primary-type:hover .n-button__content {
+    color: #000414 !important; /* Force text to Navy on hover */
+}
+
+/* Secondary / Default Buttons (Upload, Remove, Add Domain) */
+.n-button--default-type:not(.icon-only) {
+    background: transparent !important;
+    color: #00CED1 !important;
+    border: 1px solid rgba(0, 206, 209, 0.5) !important;
+    transition: all 0.3s ease !important;
+}
+
+.n-button--default-type:not(.icon-only):hover:not(.n-button--disabled) {
+    background: rgba(0, 229, 255, 0.1) !important;
+    border-color: #00E5FF !important;
+    color: #00E5FF !important;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.3) !important;
+}
+
+/* Disabled Buttons */
+.n-button--disabled {
+    opacity: 0.4 !important;
+    cursor: not-allowed !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* Icon Buttons / Link Buttons (Customize, Go to Settings) */
+.n-button.icon-only,
+.settings-btn {
+    background: transparent !important;
+    color: #00E5FF !important;
+    border: none !important;
+}
+.n-button.icon-only:hover,
+.settings-btn:hover {
+    color: #FFD700 !important;
+    text-shadow: 0 0 8px rgba(255, 215, 0, 0.6) !important;
+}
+
+/* ==========================================
+   CHECKBOXES & TOGGLES
+========================================== */
+
+/* Checkbox Base */
+.n-checkbox-box {
+    background: rgba(0, 4, 20, 0.8) !important;
+    border: 1px solid #00CED1 !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Checked State */
+.n-checkbox--checked .n-checkbox-box {
+    background: #00E5FF !important;
+    border-color: #00E5FF !important;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5) !important;
+}
+
+.n-checkbox--checked .check-icon path {
+    fill: #000414 !important; /* Dark checkmark inside glowing box */
+}
+
+/* Toggle Switch (Deduplication) */
+.n-switch__rail {
+    background-color: rgba(0, 206, 209, 0.3) !important; /* Muted teal track */
+}
+
+.n-switch--active .n-switch__rail {
+    background-color: #00E5FF !important; /* Cyan active track */
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5) !important;
+}
+
+.n-switch__button {
+    background-color: #F4F7FA !important; /* White/Ice button */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* ==========================================
+   WARNING ALERTS (SMS Compliance Box)
+========================================== */
+.n-alert {
+    background: rgba(255, 215, 0, 0.1) !important; /* Faint Gold Background */
+    border: 1px solid rgba(255, 215, 0, 0.5) !important;
+    border-radius: 8px !important;
+}
+
+.n-alert .n-alert__icon svg {
+    color: #FFD700 !important; /* Gold Icon */
+    filter: drop-shadow(0 0 4px rgba(255, 215, 0, 0.8)) !important;
+}
+
+.n-alert .title .hl-text-sm-medium {
+    color: #FFD700 !important;
+}
+
+/* Links inside alerts */
+.n-alert a {
+    color: #00E5FF !important;
+    text-decoration: none !important;
+}
+.n-alert a:hover {
+    color: #FFD700 !important;
+    text-decoration: underline !important;
+}
+/* ==========================================
+   IRVEX CRM: LIGHT THEME - BUSINESS SETTINGS
+========================================== */
+
+/* 1. Main Page Text Reset (Deep Navy for readability) */
+.w-full.p-2.pb-8,
+.hl-display-sm-medium,
+.hl-text-md-normal,
+.text-gray-500,
+.text-gray-700,
+.hl-text-sm-medium,
+.hl-text-sm-normal,
+.hl-text-xs-medium,
+.hl-text-xs-regular,
+.n-form-item-label__text,
+.n-checkbox__label,
+.btn-text,
+.hl-text-sm-regular {
+    color: #000414 !important; /* Deep Space Navy */
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* Page Title Glowing Effect */
+.hl-display-sm-medium:first-child {
+    background: linear-gradient(135deg, #00CED1 0%, #00E5FF 50%, #FFD700 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    color: transparent !important;
+    text-shadow: 0 4px 15px rgba(0, 229, 255, 0.2) !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.5px !important;
+}
+
+/* 2. Cards (Frosted Ice Styling) */
+.hl-card {
+    background: rgba(255, 255, 255, 0.75) !important; /* Translucent White Glass */
+    border: 1px solid rgba(0, 206, 209, 0.3) !important;
+    border-radius: 12px !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05) !important;
+    margin-bottom: 20px !important;
+    overflow: hidden !important;
+    transition: all 0.3s ease !important;
+}
+
+.hl-card:hover {
+    border-color: #00CED1 !important;
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.15) !important;
+}
+
+/* Card Headers & Footers */
+.hl-card-header,
+.hl-card-footer {
+    background: rgba(244, 247, 250, 0.9) !important; /* Icy off-white structure */
+    border-color: rgba(0, 206, 209, 0.2) !important;
+    padding: 15px 20px !important;
+}
+
+.hl-card-header { border-bottom: 1px solid rgba(0, 206, 209, 0.2) !important; }
+.hl-card-footer { border-top: 1px solid rgba(0, 206, 209, 0.2) !important; }
+
+.hl-card-header .hl-text-md-normal {
+    color: #00CED1 !important; /* Rich Teal Headers */
+    font-weight: 800 !important;
+    letter-spacing: 0.5px !important;
+}
+
+/* ==========================================
+   FORM INPUTS & DROPDOWNS
+========================================== */
+
+/* Base Input Styling */
+.n-input,
+.n-base-selection {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border: 1px solid rgba(0, 206, 209, 0.4) !important;
+    border-radius: 6px !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Input Hover & Focus */
+.n-input:hover,
+.n-base-selection:hover,
+.n-input--stateful.n-input--focus,
+.n-base-selection--active {
+    border-color: #00CED1 !important;
+    background: #ffffff !important;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2) !important;
+}
+
+/* Input Text Color & Placeholders */
+.n-input__input-el,
+.n-base-selection-input,
+.n-base-selection-overlay__wrapper,
+.n-base-selection-input__content {
+    color: #000414 !important; /* Dark Navy typed text */
+    caret-color: #00CED1 !important; /* Teal Cursor */
+}
+
+.n-input__placeholder span,
+.n-base-selection-placeholder__inner {
+    color: rgba(0, 4, 20, 0.4) !important; /* Muted navy placeholders */
+}
+
+/* Read-only / Disabled Inputs */
+.n-input--disabled {
+    background: rgba(0, 0, 0, 0.05) !important;
+    border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+.n-input--disabled .n-input__input-el {
+    color: rgba(0, 4, 20, 0.5) !important;
+}
+
+/* Form Labels & Asterisks */
+.n-form-item-label__text {
+    color: #000414 !important;
+    font-weight: 700 !important;
+}
+.n-form-item-label__asterisk {
+    color: #FFD700 !important; /* Gold Asterisk */
+}
+
+/* ==========================================
+   BUTTONS
+========================================== */
+
+/* Primary Action Buttons (Navy/Cyan -> Gold) */
+.n-button--primary-type {
+    background: #000414 !important;
+    color: #00E5FF !important;
+    border: 1px solid #00E5FF !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px !important;
+    box-shadow: 0 4px 15px rgba(0, 229, 255, 0.2) !important;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+}
+
+.n-button--primary-type:hover {
+    background: #FFD700 !important;
+    color: #000414 !important;
+    border-color: #FFD700 !important;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.6), inset 0 0 10px rgba(255, 255, 255, 0.3) !important;
+    transform: translateY(-2px) !important;
+}
+
+.n-button--primary-type:hover .n-button__content {
+    color: #000414 !important; /* Force text to Navy on hover */
+}
+
+/* Secondary / Default Buttons (Upload, Remove, Add Domain) */
+.n-button--default-type:not(.icon-only) {
+    background: transparent !important;
+    color: #00CED1 !important;
+    border: 1px solid rgba(0, 206, 209, 0.5) !important;
+    transition: all 0.3s ease !important;
+}
+
+.n-button--default-type:not(.icon-only):hover:not(.n-button--disabled) {
+    background: rgba(0, 229, 255, 0.1) !important;
+    border-color: #00CED1 !important;
+    color: #00CED1 !important;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2) !important;
+}
+
+/* Icon Buttons / Link Buttons */
+.n-button.icon-only,
+.settings-btn {
+    background: transparent !important;
+    color: #00CED1 !important;
+    border: none !important;
+}
+.n-button.icon-only:hover,
+.settings-btn:hover {
+    color: #FFD700 !important;
+    text-shadow: 0 0 8px rgba(255, 215, 0, 0.6) !important;
+}
+
+/* ==========================================
+   CHECKBOXES & TOGGLES
+========================================== */
+
+/* Checkbox Base */
+.n-checkbox-box {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border: 1px solid #00CED1 !important;
+}
+
+/* Checked State */
+.n-checkbox--checked .n-checkbox-box {
+    background: #00CED1 !important; /* Teal filled */
+    border-color: #00CED1 !important;
+    box-shadow: 0 0 10px rgba(0, 206, 209, 0.4) !important;
+}
+.n-checkbox--checked .check-icon path {
+    fill: #000414 !important; /* Navy Checkmark */
+}
+
+/* Toggle Switch (Deduplication) */
+.n-switch__rail {
+    background-color: rgba(0, 0, 0, 0.1) !important;
+}
+.n-switch--active .n-switch__rail {
+    background-color: #00CED1 !important;
+    box-shadow: 0 0 10px rgba(0, 206, 209, 0.4) !important;
+}
+.n-switch__button {
+    background-color: #ffffff !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* ==========================================
+   WARNING ALERTS (SMS Compliance Box)
+========================================== */
+.n-alert {
+    background: rgba(255, 215, 0, 0.15) !important;
+    border: 1px solid rgba(255, 215, 0, 0.6) !important;
+    border-radius: 8px !important;
+}
+
+.n-alert .n-alert__icon svg {
+    color: #d4af37 !important; /* Gold Icon */
+}
+
+.n-alert .title .hl-text-sm-medium,
+#sms-compliance-alert [class*="text-gray-"],
+#sms-compliance-alert [class*="hl-text-"] {
+    color: #000414 !important; /* Dark text inside alert */
+}
+
+.n-alert a { color: #00CED1 !important; text-decoration: none !important; }
+.n-alert a:hover { color: #FFD700 !important; text-decoration: underline !important; }
+
+/* ==========================================
+   LIGHT THEME TEXT RESOLUTION PATCH
+========================================== */
+
+/* 1. Force GHL's hardcoded utility text to Navy */
+.hl-card [class*="text-gray-"],
+.hl-card [class*="text-slate-"],
+.hl-card [class*="text-zinc-"],
+.hl-card [class*="text-neutral-"],
+.hl-card [class*="text-stone-"],
+.hl-card [class*="hl-text-"] {
+    color: #000414 !important;
+}
+
+/* 2. Mute secondary helper text slightly */
+.hl-card .text-gray-400,
+.hl-card .text-gray-500,
+.n-form-item-feedback__line,
+.break-normal,
+.opt-out-default {
+    color: rgba(0, 4, 20, 0.6) !important;
+}
+
+/* 3. Fix SVG Icons */
+.hl-card svg.stroke-2,
+.hl-card .plus-icon svg,
+.hl-card .n-base-icon svg {
+    color: #00CED1 !important;
+    stroke: currentColor !important;
+}
+
+/* 4. Labels & Dropdowns */
+.n-checkbox__label,
+.n-checkbox__label div,
+.n-checkbox__label span,
+.n-base-selection-label {
+    color: #000414 !important;
+}
