@@ -25,7 +25,7 @@ function createAppViews(L, brand) {
         : 'The app is not installed on this agency, so your theme is switched off. Reinstall it from the HighLevel Marketplace.') + '</div>';
     }
     body += '<div class="card"><h2>Your code</h2><p class="note">Paste these in HighLevel under <b>Agency Settings &rarr; Company</b>: the first in <b>Custom CSS</b> (at the top), the second in <b>Custom JS</b>. Then reload your CRM.</p>' +
-      snippets(o.baseUrl, inst) + '</div>';
+      (status === 'active' ? snippets(o.baseUrl, inst) : '<p class="note"><b>Your code appears here once your license is active.</b></p>') + '</div>';
 
     const hosts = inst.boundHosts.map((h) => '<tr><td><b>' + esc(h) + '</b></td><td><small>' + (inst.seenHosts[h] ? 'last used ' + L.fmt(inst.seenHosts[h]) : 'not used yet') + '</small></td><td style="text-align:right">' +
       L.postBtn('/app/domains/remove', 'Remove', o.csrf, 'danger', 'Remove ' + h + '? The theme stops loading there.', '<input type="hidden" name="host" value="' + esc(h) + '">' + T) + '</td></tr>').join('');

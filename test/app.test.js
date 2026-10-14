@@ -72,7 +72,7 @@ async function installAndSignIn(s) {
   const page = await (await fetch(s.url + '/app', { headers: { cookie: cust } })).text();
   return {
     cust, page,
-    key: page.match(/\/c\/(k_[A-Za-z0-9_-]+)\/theme\.css/)[1],
+    key: (await s.app.locals.store.get(COMPANY)).key,
     csrf: page.match(/name="_csrf" value="([^"]+)"/)[1]
   };
 }
@@ -335,6 +335,12 @@ test('sidebar page inside HighLevel signs in with SSO', async (t) => {
   r = await fetch(s.url + '/app/domains/add', { method: 'POST', body: new URLSearchParams({ _csrf: csrf, t: token, host: 'app.irvex.com' }), redirect: 'manual' });
   assert.strictEqual(r.status, 302);
   assert.match(r.headers.get('location'), /^\/app\?t=/);
+  // Codes are only shown while the license is active
+  s.gh.revoked = true;
+  await fetch(s.url + '/webhooks/ghl', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'UNINSTALL', companyId: COMPANY }) });
+  const after = await (await fetch(s.url + '/app?t=' + encodeURIComponent(token))).text();
+  assert.ok(!/\/c\/k_[\w-]+\/theme\.css/.test(after), 'no snippets after uninstall');
+  assert.match(after, /once your license is active/);
   // Tampered token is rejected; the normal cookie page still refuses framing
   assert.match(await (await fetch(s.url + '/app?t=' + encodeURIComponent(token) + 'x')).text(), /Session expired/);
   r = await fetch(s.url + '/app');
