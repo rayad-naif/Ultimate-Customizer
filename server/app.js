@@ -212,7 +212,8 @@ function createApp(cfg, deps) {
     res.set('Cache-Control', 'no-store');
     try {
       const db = await store.ping();
-      res.json({ ok: true, database: db, db_name: cfg.mongoUri ? cfg.mongoDb : null, base_url: cfg.baseUrl });
+      res.json({ ok: true, database: db, db_name: cfg.mongoUri ? cfg.mongoDb : null, base_url: cfg.baseUrl,
+        sso_configured: !!cfg.ghl.ssoKey, version: (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7) });
     } catch (e) {
       const d = dbProblem(e);
       res.status(503).json({ ok: false, database: 'error', problem: d.title, fix: d.fix, code: d.code });
@@ -294,7 +295,9 @@ function createApp(cfg, deps) {
     // Signed in inside HighLevel's iframe (token) or directly (cookie).
     const tok = (req.query && typeof req.query.t === 'string' && req.query.t) || (req.body && typeof req.body.t === 'string' && req.body.t) || '';
     const et = tok ? sec.unsign(tok) : null;
-    const s = et && et.t === 'emb' && et.csrf ? et : session(req, CUST_COOKIE);
+    // Inside a frame the cookie is never used (on a same-site HighLevel domain it would
+    // still be sent, and the cookie page refuses framing): frames always sign in via SSO.
+    const s = et && et.t === 'emb' && et.csrf ? et : (framed(req) ? null : session(req, CUST_COOKIE));
     if (s === et && et) { res.locals.embed = tok; allowFrame(res); } else noFrame(res);
     const inst = s && await lic.get(s.companyId);
     if (!inst) {

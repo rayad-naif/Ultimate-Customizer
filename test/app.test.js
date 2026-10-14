@@ -350,6 +350,10 @@ test('sidebar page inside HighLevel signs in with SSO', async (t) => {
   assert.match(after, /once your license is active/);
   // Tampered token is rejected; the normal cookie page still refuses framing
   assert.match(await (await fetch(s.url + '/app?t=' + encodeURIComponent(token) + 'x')).text(), /Session expired/);
+  // Same-site HighLevel domain: the cookie reaches the frame, but framed requests still use SSO
+  r = await fetch(s.url + '/app', { headers: { cookie: signedIn.cust, 'Sec-Fetch-Dest': 'iframe' } });
+  assert.strictEqual(r.headers.get('x-frame-options'), null);
+  assert.match(await r.text(), /REQUEST_USER_DATA/);
   // Signed-out sign-in page may be framed (it switches to SSO); the signed-in cookie page never is
   r = await fetch(s.url + '/app');
   assert.strictEqual(r.headers.get('x-frame-options'), null);
