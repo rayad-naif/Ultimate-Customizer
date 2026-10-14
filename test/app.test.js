@@ -10,7 +10,7 @@ const { createApp } = require('../server/app');
 const COMPANY = 'AgencyCo123456';
 const DOMAIN = 'https://app.irvex.com';
 
-// Fake HighLevel API: token exchange, refresh and company lookup.
+// Fake CRM API: token exchange, refresh and company lookup.
 function fakeGhl() {
   const state = { revoked: false };
   const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -108,7 +108,7 @@ test('install, connect, edit live, lock to agency, suspend, uninstall', async (t
 
   // App page is private
   r = await fetch(s.url + '/app');
-  assert.match(await r.text(), /Sign in with HighLevel/);
+  assert.match(await r.text(), /Sign in with your CRM/);
 
   const a = await installAndSignIn(s);
   assert.match(a.page, /Irvex Agency/);
@@ -171,13 +171,13 @@ test('install, connect, edit live, lock to agency, suspend, uninstall', async (t
   vj = await (await fetch(s.url + '/c/' + a.key + '/v.json?have=' + v, { headers: from(DOMAIN) })).json();
   assert.strictEqual(vj.config, undefined);
 
-  // Shared HighLevel domain: theme only via the verified fetch
+  // Shared CRM domain: theme only via the verified fetch
   r = await fetch(s.url + '/app/domains/add', { method: 'POST', headers: { cookie: a.cust }, body: new URLSearchParams({ _csrf: a.csrf, host: 'https://app.gohighlevel.com/' }), redirect: 'manual' });
   assert.strictEqual(r.status, 302);
-  const GHL = 'https://app.gohighlevel.com';
-  assert.match(await (await fetch(s.url + '/c/' + a.key + '/theme.css', { headers: from(GHL) })).text(), /no active license/);
-  assert.match(await (await fetch(s.url + '/c/' + a.key + '/theme.css', { headers: Object.assign({ 'X-UC-Verified': '1' }, from(GHL)) })).text(), /#112233/);
-  assert.match(await (await fetch(s.url + '/c/' + a.key + '/customizer.js', { headers: from(GHL) })).text(), /"mode":"verify"/);
+  const CRM = 'https://app.gohighlevel.com';
+  assert.match(await (await fetch(s.url + '/c/' + a.key + '/theme.css', { headers: from(CRM) })).text(), /no active license/);
+  assert.match(await (await fetch(s.url + '/c/' + a.key + '/theme.css', { headers: Object.assign({ 'X-UC-Verified': '1' }, from(CRM)) })).text(), /#112233/);
+  assert.match(await (await fetch(s.url + '/c/' + a.key + '/customizer.js', { headers: from(CRM) })).text(), /"mode":"verify"/);
 
   // Super Admin
   r = await fetch(s.url + '/admin', { redirect: 'manual' });
@@ -207,7 +207,7 @@ test('install, connect, edit live, lock to agency, suspend, uninstall', async (t
   // Unsigned UNINSTALL webhook while the token is still valid: ignored
   await fetch(s.url + '/webhooks/ghl', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'UNINSTALL', companyId: COMPANY }) });
   assert.strictEqual((await (await fetch(s.url + '/api/check?companyId=' + COMPANY)).json()).licensed, true);
-  // Real uninstall: HighLevel revoked the token
+  // Real uninstall: CRM revoked the token
   s.gh.revoked = true;
   await fetch(s.url + '/webhooks/ghl', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'UNINSTALL', companyId: COMPANY }) });
   assert.deepStrictEqual(await (await fetch(s.url + '/api/check?companyId=' + COMPANY)).json(), { companyId: COMPANY, licensed: false, status: 'not_installed' });
@@ -265,7 +265,7 @@ test('agencies that have not bought get nothing', async (t) => {
   assert.strictEqual(r.status, 401);
   // Forged session cookies are rejected
   r = await fetch(s.url + '/app', { headers: { cookie: 'uc_cust=eyJjb21wYW55SWQiOiJBZ2VuY3lDbzEyMzQ1NiJ9.forged' } });
-  assert.match(await r.text(), /Sign in with HighLevel/);
+  assert.match(await r.text(), /Sign in with your CRM/);
 });
 
 test('approval mode: new installs stay off until approved', async (t) => {
@@ -296,7 +296,7 @@ test('approval mode: new installs stay off until approved', async (t) => {
   assert.strictEqual((await (await fetch(s.url + '/api/check?companyId=' + COMPANY)).json()).status, 'pending');
 });
 
-test('sidebar page inside HighLevel signs in with SSO', async (t) => {
+test('sidebar page inside the CRM signs in with SSO', async (t) => {
   const crypto = require('crypto');
   const KEY = 'sso-shared-secret';
   const enc = (obj) => { // same format as CryptoJS.AES.encrypt(text, passphrase)
@@ -335,7 +335,7 @@ test('sidebar page inside HighLevel signs in with SSO', async (t) => {
   r = await fetch(s.url + '/app/domains/add', { method: 'POST', body: new URLSearchParams({ _csrf: csrf, t: token, host: 'app.irvex.com' }), redirect: 'manual' });
   assert.strictEqual(r.status, 302);
   assert.match(r.headers.get('location'), /^\/app\?t=/);
-  // HighLevel's sidebar pointed at /app or / instead of /embed still signs in via SSO
+  // the CRM's sidebar pointed at /app or / instead of /embed still signs in via SSO
   for (const path of ['/app', '/']) {
     r = await fetch(s.url + path, { headers: { 'Sec-Fetch-Dest': 'iframe' } });
     assert.match(r.headers.get('content-security-policy'), /frame-ancestors https:/, path);
@@ -350,7 +350,7 @@ test('sidebar page inside HighLevel signs in with SSO', async (t) => {
   assert.match(after, /once your license is active/);
   // Tampered token is rejected; the normal cookie page still refuses framing
   assert.match(await (await fetch(s.url + '/app?t=' + encodeURIComponent(token) + 'x')).text(), /Session expired/);
-  // Same-site HighLevel domain: the cookie reaches the frame, but framed requests still use SSO
+  // Same-site CRM domain: the cookie reaches the frame, but framed requests still use SSO
   r = await fetch(s.url + '/app', { headers: { cookie: signedIn.cust, 'Sec-Fetch-Dest': 'iframe' } });
   assert.strictEqual(r.headers.get('x-frame-options'), null);
   assert.match(await r.text(), /REQUEST_USER_DATA/);

@@ -1,5 +1,5 @@
 'use strict';
-/* HighLevel OAuth 2.0 (Target User: Agency) + webhook verification. */
+/* CRM OAuth 2.0 (Target User: Agency) + webhook verification. */
 const crypto = require('crypto');
 
 class GhlError extends Error {

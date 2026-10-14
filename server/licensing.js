@@ -7,10 +7,10 @@
                        (OAuth / webhooks) and not suspended by you.
    2. Domain binding   full CSS/JS is only served to domains the agency has
                        connected. Connecting a domain needs an admin of THAT
-                       agency to approve it after signing in with HighLevel,
+                       agency to approve it after signing in with your CRM,
                        and the domain is taken from the browser's Origin header.
    3. Runtime check    the script reads the logged-in user's companyId from
-                       HighLevel's own API responses and shuts itself off if it
+                       the CRM's own API responses and shuts itself off if it
                        belongs to another agency.
    4. Monitoring       every unknown domain that requests the files is logged
                        ("blocked attempts") in the Super Admin panel.
@@ -21,7 +21,7 @@ const { randomToken } = require('./security');
 const COMPANY_RE = /^[A-Za-z0-9_-]{6,64}$/;
 const HOST_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 const PAIR_RE = /^[A-Za-z0-9_-]{20,64}$/;
-// Hosts every HighLevel agency shares: binding them cannot tell agencies apart,
+// Hosts every CRM agency shares: binding them cannot tell agencies apart,
 // so there the theme only loads after the runtime company check passes.
 const SHARED_HOSTS = ['app.gohighlevel.com', 'app.leadconnectorhq.com', 'app.msgsndr.com'];
 const MAX_SEEN = 25;
@@ -39,7 +39,7 @@ function createLicensing(store, ghl, sec, opts) {
       companyId,
       name: '',
       key: newAssetKey(),          // appears in the CSS/JS URLs
-      installed: false,            // app installed in GHL (OAuth / webhook)
+      installed: false,            // app installed in CRM (OAuth / webhook)
       suspended: false,            // switched off in the Super Admin panel
       pending: false,              // waiting for approval (NEW_INSTALL_STATUS=pending)
       source: 'oauth',
@@ -84,7 +84,7 @@ function createLicensing(store, ghl, sec, opts) {
     return inst.installed ? 'active' : 'uninstalled';
   }
 
-  /* ---------------- tokens from HighLevel ---------------- */
+  /* ---------------- tokens from the CRM ---------------- */
   function storeTokens(inst, t) {
     inst.tokens = sec.encrypt(JSON.stringify({ access: t.access_token, refresh: t.refresh_token }));
     inst.tokenExpiresAt = t.expires_in ? new Date(Date.now() + t.expires_in * 1000).toISOString() : null;
@@ -112,7 +112,7 @@ function createLicensing(store, ghl, sec, opts) {
       if (c && c.name) inst.name = String(c.name).slice(0, 120);
     } catch (e) { /* scope missing or API down: name stays empty */ }
     await store.put(inst);
-    await store.log(inst.companyId, isNew ? 'install' : 'sign_in', 'via HighLevel OAuth' + (isNew && inst.pending ? ' (pending approval)' : ''));
+    await store.log(inst.companyId, isNew ? 'install' : 'sign_in', 'via CRM OAuth' + (isNew && inst.pending ? ' (pending approval)' : ''));
     return inst;
   }
 
@@ -129,7 +129,7 @@ function createLicensing(store, ghl, sec, opts) {
   }
 
   /* Confirm the app is still installed by refreshing the agency token.
-     invalid_grant / 401 => HighLevel revoked it => uninstalled. */
+     invalid_grant / 401 => CRM revoked it => uninstalled. */
   async function verify(inst) {
     const tokens = readTokens(inst);
     if (!tokens || !tokens.refresh) {
@@ -240,7 +240,7 @@ function createLicensing(store, ghl, sec, opts) {
 
   /* What a request from `host` gets:
        full    -> theme CSS + full script
-       verify  -> shared HighLevel domain: script loads the theme only after
+       verify  -> shared CRM domain: script loads the theme only after
                   confirming the user belongs to this agency
        setup   -> licensed, but this domain is not connected yet: script only
                   offers agency admins the "Connect" button

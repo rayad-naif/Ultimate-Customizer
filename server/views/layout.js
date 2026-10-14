@@ -83,7 +83,7 @@ footer.site a:hover{color:var(--accent)}
 @media (max-width:640px){.top{padding:12px 16px}.code{padding-right:14px}.code .copy{position:static;margin-top:10px}.hero h1{font-size:32px}.toc{columns:1}}
 `;
 
-// Opened inside HighLevel's sidebar frame: sign in through HighLevel SSO instead.
+// Opened inside the CRM's sidebar frame: sign in through CRM SSO instead.
 const FRAME_JS = "if(window.top!==window.self)location.replace('/embed');";
 const COPY_JS = `document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(!b)return;var t=document.getElementById(b.dataset.copy).textContent;
 (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)},function(){prompt('Copy:',t)})});`;
@@ -102,7 +102,7 @@ function createLayout(brand) {
       nav = navLink('/admin', 'Agencies') + navLink('/admin/events', 'Activity') +
         '<form method="post" action="/admin/logout" style="margin:0">' + csrfField(opts.csrf || '') + '<button class="btn sm">Sign out</button></form>';
     } else if (opts.embed) {
-      // Inside HighLevel: no sign-out; other pages open in a new tab.
+      // Inside the CRM: no sign-out; other pages open in a new tab.
       nav = '<a href="/docs" target="_blank" rel="noopener">Docs</a><a href="/#support" target="_blank" rel="noopener">Support</a>';
     } else if (opts.customer) {
       nav = navLink('/app', 'My app') + navLink('/docs', 'Docs') + navLink('/', 'Support') +
@@ -110,11 +110,11 @@ function createLayout(brand) {
     } else {
       nav = navLink('/', 'Home') + navLink('/docs', 'Documentation') + navLink('/#support', 'Support') + navLink('/app', 'My app');
     }
-    const footer = opts.admin || opts.embed ? '' : '<footer class="site"><div class="in"><div><b>' + esc(brand.name) + '</b> &middot; Premium themes for HighLevel agencies<br>' +
+    const footer = opts.admin || opts.embed ? '' : '<footer class="site"><div class="in"><div><b>' + esc(brand.name) + '</b> &middot; Premium themes for CRM agencies<br>' +
       'Support: <a href="mailto:' + esc(brand.supportEmail) + '" style="color:var(--accent)">' + esc(brand.supportEmail) + '</a></div>' +
       '<div><a href="/docs">Documentation</a><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/#check">License check</a></div></div></footer>';
     return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-      '<title>' + esc(title) + ' | ' + esc(brand.name) + '</title><meta name="description" content="' + esc(opts.description || brand.name + ' - premium themes, effects and login page design for HighLevel agencies.') + '">' +
+      '<title>' + esc(title) + ' | ' + esc(brand.name) + '</title><meta name="description" content="' + esc(opts.description || brand.name + ' - premium themes, effects and login page design for CRM agencies.') + '">' +
       '<style>' + CSS + '</style></head><body>' +
       '<header class="top"><a class="brand" href="' + (opts.admin ? '/admin' : '/') + '">' + esc(brand.name) + (opts.admin ? ' &middot; Super Admin' : '') + '</a><nav>' + nav + '</nav></header>' +
       '<main>' + (opts.flash ? flashHtml(opts.flash) : '') + body + '</main>' + footer +

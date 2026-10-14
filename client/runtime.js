@@ -7,7 +7,7 @@
    - served stylesheet, live-preview layer, realtime updates
    Modes (decided by the server per domain):
      full   - theme CSS is linked, effects run immediately
-     verify - shared HighLevel domain: theme loads after company check
+     verify - shared CRM domain: theme loads after company check
      setup  - domain not connected yet: only the Connect button
    ===================================================================== */
 /* global UC_BOOT */
@@ -17,7 +17,7 @@ var UC = (function () {
   const B = UC_BOOT;
   const L = B.license;
   const on = { response: [], kill: [], change: [], live: [] };
-  const emit = (k) => on[k].slice().forEach((fn) => { try { fn(); } catch (e) { /* never break GHL */ } });
+  const emit = (k) => on[k].slice().forEach((fn) => { try { fn(); } catch (e) { /* never break the CRM */ } });
 
   const UC = {
     E: E,
@@ -142,7 +142,7 @@ var UC = (function () {
   }
   if (UC.mode === 'full') setTimeout(ensureServed, 1500);
 
-  // Shared HighLevel domains: fetch the theme only after the company matched.
+  // Shared CRM domains: fetch the theme only after the company matched.
   function goLive() {
     if (UC.live || UC.killed) return;
     fetch(themeUrl, { credentials: 'omit', headers: { 'X-UC-Verified': '1' } })

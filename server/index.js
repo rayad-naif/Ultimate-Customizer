@@ -12,7 +12,7 @@ if (problems.length) {
 const app = createApp(cfg);
 const server = app.listen(cfg.port, () => {
   console.log('Ultimate Customizer listening on :' + cfg.port);
-  console.log('OAuth redirect URL for your HighLevel app: ' + cfg.redirectUri);
+  console.log('OAuth redirect URL for your CRM app: ' + cfg.redirectUri);
   console.log('Webhook URL: ' + cfg.baseUrl + '/webhooks/ghl');
 });
 

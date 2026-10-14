@@ -1,5 +1,5 @@
 'use strict';
-/* The app page (after HighLevel sign-in) and the domain-connect approval page. */
+/* The app page (after CRM sign-in) and the domain-connect approval page. */
 const { esc } = require('./layout');
 
 function createAppViews(L, brand) {
@@ -14,7 +14,7 @@ function createAppViews(L, brand) {
 
   function appPage(o) {
     const inst = o.inst, status = o.status;
-    // Inside HighLevel's iframe the session travels as a token in every form.
+    // Inside the CRM's iframe the session travels as a token in every form.
     const T = o.embedToken ? '<input type="hidden" name="t" value="' + esc(o.embedToken) + '">' : '';
     let body = '<h1>' + esc(inst.name || 'Your agency') + ' ' + L.pill(status) + '</h1><p class="sub">Company ID <code>' + esc(inst.companyId) + '</code></p>';
     if (status !== 'active') {
@@ -22,9 +22,9 @@ function createAppViews(L, brand) {
         ? 'Thanks for installing! Your license is being activated. Your theme starts working as soon as it is approved. Questions: ' + esc(brand.supportEmail) + '.'
         : status === 'suspended'
         ? 'This license is suspended, so your theme is switched off. Contact ' + esc(brand.supportEmail) + '.'
-        : 'The app is not installed on this agency, so your theme is switched off. Reinstall it from the HighLevel Marketplace.') + '</div>';
+        : 'The app is not installed on this agency, so your theme is switched off. Reinstall it from the CRM App Marketplace.') + '</div>';
     }
-    body += '<div class="card"><h2>Your code</h2><p class="note">Paste these in HighLevel under <b>Agency Settings &rarr; Company</b>: the first in <b>Custom CSS</b> (at the top), the second in <b>Custom JS</b>. Then reload your CRM.</p>' +
+    body += '<div class="card"><h2>Your code</h2><p class="note">Paste these in your CRM under <b>Agency Settings &rarr; Company</b>: the first in <b>Custom CSS</b> (at the top), the second in <b>Custom JS</b>. Then reload your CRM.</p>' +
       (status === 'active' ? snippets(o.baseUrl, inst) : '<p class="note"><b>Your code appears here once your license is active.</b></p>') + '</div>';
 
     const hosts = inst.boundHosts.map((h) => '<tr><td><b>' + esc(h) + '</b></td><td><small>' + (inst.seenHosts[h] ? 'last used ' + L.fmt(inst.seenHosts[h]) : 'not used yet') + '</small></td><td style="text-align:right">' +
@@ -59,12 +59,12 @@ function createAppViews(L, brand) {
     return L.layout('Connect', body, { customer: true, csrf: o.csrf });
   }
 
-  // Custom page HighLevel loads in the sidebar. Gets the signed-in user via SSO.
+  // Custom page CRM loads in the sidebar. Gets the signed-in user via SSO.
   function embedPage(o) {
     const open = '<a class="btn pri" href="/app" target="_blank" rel="noopener">Open Ultimate Customizer</a>';
     const body = '<div class="card" style="max-width:560px;margin:30px auto;text-align:center"><h1>' + esc(brand.name) + '</h1>' +
       '<p class="sub" id="msg">' + (o.ssoEnabled ? 'Signing you in\u2026' : 'Open your app page in a new tab to get your code and manage domains.') + '</p>' +
-      '<div id="fallback"' + (o.ssoEnabled ? ' style="display:none"' : '') + '>' + open + '<p class="note" style="margin-top:14px">You may be asked to sign in with HighLevel.</p></div></div>';
+      '<div id="fallback"' + (o.ssoEnabled ? ' style="display:none"' : '') + '>' + open + '<p class="note" style="margin-top:14px">You may be asked to sign in with your CRM.</p></div></div>';
     const script = o.ssoEnabled ? `
 (function(){var done=false,msg=document.getElementById('msg'),fb=document.getElementById('fallback');
 function fail(t){done=true;msg.textContent=t;fb.style.display='';}
@@ -74,7 +74,7 @@ fetch('/api/sso',{method:'POST',headers:{'Content-Type':'application/json'},body
 .then(function(r){return r.json()}).then(function(j){if(j.token)location.replace('/app?t='+encodeURIComponent(j.token));else fail(j.error||'Could not sign you in.')})
 .catch(function(){fail('Could not reach the server.')})});
 window.parent.postMessage({message:'REQUEST_USER_DATA'},'*');
-setTimeout(function(){if(!done)fail('HighLevel did not answer the sign-in request (no REQUEST_USER_DATA_RESPONSE). Make sure this page is opened from the app\u2019s sidebar link, or open the app in a new tab.')},8000);})();` : '';
+setTimeout(function(){if(!done)fail('The CRM did not answer the sign-in request (no REQUEST_USER_DATA_RESPONSE). Make sure this page is opened from the app\u2019s sidebar link, or open the app in a new tab.')},8000);})();` : '';
     return L.layout('Ultimate Customizer', body, { customer: true, embed: true, script });
   }
 

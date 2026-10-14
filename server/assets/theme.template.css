@@ -234,7 +234,7 @@ a.router-link-exact-active span.nav-title {
    HIGH-VISIBILITY CLOSE BUTTON
 ========================================== */
 
-/* Overriding GHL's default faded opacity and styling the button */
+/* Overriding the CRM's default faded opacity and styling the button */
 #notification_banner-top_bar button {
     opacity: 1 !important; /* Forces the button to be 100% solid */
     color: [[banner.text]] !important; /* Pure white X */
@@ -282,7 +282,7 @@ a.router-link-exact-active span.nav-title {
 /* ==========================================
    IRVEX CRM: SPLIT-SCREEN LOGIN OVERRIDES
 ========================================== */
-/* 1. Break out of GHL's default centered box */
+/* 1. Break out of the CRM's default centered box */
 body:has(.hl_login),
 .pmd-app__side-dock-main-surface,
 .flex.v2-open.sidebar-v2-agency {
@@ -357,7 +357,7 @@ body:has(.hl_login),
     100% { background-position: 0% 50%, 100% 50%, [[login.gridSize*1px]] [[login.gridSize*1px]], [[login.gridSize*1px]] [[login.gridSize*1px]]; }
 }
 
-/* Fix GHL's internal container so it centers the logo */
+/* Fix the CRM's internal container so it centers the logo */
 .hl_login--header .container-fluid {
     display: flex !important;
     flex-direction: column !important;
@@ -785,7 +785,7 @@ span.divider.topmenu-navitem {
     border-radius: 2px !important;
     box-shadow: 0 0 5px [[topnav.tabHover/0.1]] !important;
     align-self: center !important;
-    padding: 0 !important; /* Overrides GHL's native padding */
+    padding: 0 !important; /* Overrides the CRM's native padding */
 }
 /*@section loader*/
 /* ==========================================
@@ -982,7 +982,7 @@ img.agency-logo.irvex-subaccount-logo:hover {
 
 /*@section patches*/
 /* ==========================================
-   IRVEX CRM: GHL STRUCTURE PATCHES
+   IRVEX CRM: CRM STRUCTURE PATCHES
 ========================================== */
 
 /* 1. Reset the wrapper when it's inside the Header/Power Dialer */
@@ -995,7 +995,7 @@ img.agency-logo.irvex-subaccount-logo:hover {
     box-shadow: none !important;
 }
 
-/* 2. Target GHL's specific div-based headings (like "Invoices") */
+/* 2. Target the CRM's specific div-based headings (like "Invoices") */
 .hr-wrapper-container .title,
 .hr-wrapper-container [class*="hl-display-"],
 .hr-wrapper-container [class*="hl-text-lg"] {
@@ -1514,7 +1514,7 @@ img.agency-logo.irvex-subaccount-logo:hover {
    LIGHT THEME TEXT RESOLUTION PATCH
 ========================================== */
 
-/* 1. Force GHL's hardcoded utility text to Navy */
+/* 1. Force the CRM's hardcoded utility text to Navy */
 .hl-card [class*="text-gray-"],
 .hl-card [class*="text-slate-"],
 .hl-card [class*="text-zinc-"],

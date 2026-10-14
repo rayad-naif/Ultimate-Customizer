@@ -256,7 +256,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   /* ------------------------------------------------------------------
      5. CONNECT FLOW
      The script makes a random pairing id and opens our app in a popup.
-     An admin of THIS agency approves it after signing in with HighLevel;
+     An admin of THIS agency approves it after signing in with your CRM;
      the script then claims it, which connects this domain and returns an
      editor token for this browser.
   ------------------------------------------------------------------ */
@@ -269,9 +269,9 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     const main = shadow.getElementById('main');
     const domain = esc(location.hostname);
     if (stage === 'start') {
-      main.innerHTML = '<div class="connect"><h2>Connect this CRM</h2><p>To unlock Ultimate Customizer on <b>' + domain + '</b>, confirm it with the HighLevel agency account that purchased the app.' +
+      main.innerHTML = '<div class="connect"><h2>Connect this CRM</h2><p>To unlock Ultimate Customizer on <b>' + domain + '</b>, confirm it with the CRM agency account that purchased the app.' +
         (UC.mode !== 'setup' ? ' This also lets this browser save theme changes.' : '') + '</p>' +
-        '<div class="btns" style="justify-content:center;margin-top:18px"><button class="btn pri" data-act="connect">Connect with HighLevel</button></div>' +
+        '<div class="btns" style="justify-content:center;margin-top:18px"><button class="btn pri" data-act="connect">Connect with your CRM</button></div>' +
         '<p class="note">A small window opens. Sign in if asked, then click <b>Approve</b>.</p></div>';
     } else if (stage === 'wait') {
       main.innerHTML = '<div class="connect"><h2>Waiting for approval…</h2><div class="spin"></div><p>Approve the connection in the window that opened.</p>' +
@@ -433,7 +433,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   }
 
   function renderAdvanced() {
-    return '<h4>Theme sections</h4><p class="note">Switch off any part of the theme to keep HighLevel’s original look there.</p>' +
+    return '<h4>Theme sections</h4><p class="note">Switch off any part of the theme to keep the CRM’s original look there.</p>' +
       R.SECTIONS.map((s) => '<div class="ctl"><div class="lbl"><b>' + esc(s[1]) + '</b></div><div class="in"><input type="checkbox" data-sec="' + s[0] + '"' + (draft.sections[s[0]] === false ? '' : ' checked') + '></div></div>').join('') +
       '<h4>Custom CSS</h4><textarea id="customcss" spellcheck="false" placeholder="/* added after the theme */">' + esc(draft.customCss) + '</textarea>' +
       '<p class="note">Applied when you click outside the box.</p>' +
@@ -669,7 +669,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   if (UC.mode !== 'setup') applyNames();
   const iv = setInterval(() => {
     if (UC.killed) { clearInterval(iv); return; }
-    try { ensureMenuItem(); } catch (e) { /* never break GHL */ }
+    try { ensureMenuItem(); } catch (e) { /* never break the CRM */ }
   }, 600);
 
   window.IRVEX_UC = {

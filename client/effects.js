@@ -227,13 +227,13 @@
   });
 
   /* ------------------------------------------------------------------
-     WATCHDOG  (GHL is an SPA that keeps re-rendering the DOM)
+     WATCHDOG  (The CRM is an SPA that keeps re-rendering the DOM)
   ------------------------------------------------------------------ */
   let pending = 0;
   function tick() {
     pending = 0;
     if (UC.killed || !UC.live) return;
-    try { initSidebarNetwork(); initLoginNetwork(); syncLoginText(); syncLogo(); } catch (e) { /* never break GHL */ }
+    try { initSidebarNetwork(); initLoginNetwork(); syncLoginText(); syncLogo(); } catch (e) { /* never break the CRM */ }
   }
   UC.refreshEffects = tick;
   UC.onChange(() => { if (UC.live) tick(); });

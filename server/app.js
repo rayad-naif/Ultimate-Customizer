@@ -59,7 +59,7 @@ function createApp(cfg, deps) {
     const s = sec.unsign(parseCookies(req)[name]);
     return s && s.csrf ? s : null;
   }
-  // Inside HighLevel's iframe a normal cookie is third-party, so embedded pages use a partitioned one.
+  // Inside the CRM's iframe a normal cookie is third-party, so embedded pages use a partitioned one.
   const flashOpts = (res) => (res.locals.embed ? { sameSite: 'None', partitioned: true } : {});
   const flash = (res, f) => setCookie(res, FLASH_COOKIE, sec.encrypt(JSON.stringify(f)), Object.assign({ maxAge: 120e3 }, flashOpts(res)));
   function takeFlash(req, res) {
@@ -72,7 +72,7 @@ function createApp(cfg, deps) {
     res.status(status || 200).set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'same-origin', 'X-Content-Type-Options': 'nosniff' }).send(body);
   };
   const noFrame = (res) => res.set({ 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "frame-ancestors 'none'" });
-  // Pages HighLevel shows inside its sidebar iframe (white-label domains vary, so any https parent).
+  // Pages CRM shows inside its sidebar iframe (white-label domains vary, so any https parent).
   const allowFrame = (res) => { res.removeHeader('X-Frame-Options'); res.set('Content-Security-Policy', 'frame-ancestors https:' + (cfg.secureCookies ? '' : ' http:')); };
   function csrfOk(req, s) {
     const t = req.get('X-CSRF-Token') || (req.body && req.body._csrf);
@@ -112,7 +112,7 @@ function createApp(cfg, deps) {
     const inst = companyId && await lic.get(companyId);
     try {
       if (inst && evt.type === 'UNINSTALL' && !evt.locationId) {
-        // Only trust an unsigned webhook after HighLevel itself confirms the token is gone.
+        // Only trust an unsigned webhook after CRM itself confirms the token is gone.
         if (verified === true) await lic.markUninstalled(inst, 'webhook');
         else await lic.verify(inst);
       } else if (inst && evt.type === 'INSTALL') {
@@ -127,7 +127,7 @@ function createApp(cfg, deps) {
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));
   app.use(express.json({ limit: '200kb' }));
 
-  /* ---------------- licensed assets (loaded inside HighLevel) ---------------- */
+  /* ---------------- licensed assets (loaded inside the CRM) ---------------- */
   async function assetCtx(req) {
     const inst = /^k_[A-Za-z0-9_-]{10,64}$/.test(req.params.key) ? await lic.byKey(req.params.key) : null;
     const host = requestHost(req);
@@ -239,7 +239,7 @@ function createApp(cfg, deps) {
 
   app.get('/oauth/callback', ah(async (req, res) => {
     const code = typeof req.query.code === 'string' ? req.query.code : '';
-    if (!code) return html(res, views.message('Install failed', req.query.error_description || req.query.error || 'No authorization code was returned by HighLevel.'), 400);
+    if (!code) return html(res, views.message('Install failed', req.query.error_description || req.query.error || 'No authorization code was returned by the CRM.'), 400);
     let next = '/app';
     // Marketplace-initiated installs carry no state; ones we started must match.
     if (req.query.state) {
@@ -260,9 +260,9 @@ function createApp(cfg, deps) {
     }
   }));
 
-  /* ---------------- app page inside HighLevel (sidebar) ----------------
-     HighLevel opens the app's custom page in an iframe, where our cookies are
-     third-party. /embed asks HighLevel for the signed-in user (SSO), we decrypt
+  /* ---------------- app page inside the CRM (sidebar) ----------------
+     CRM opens the app's custom page in an iframe, where our cookies are
+     third-party. /embed asks CRM for the signed-in user (SSO), we decrypt
      it with the app's shared secret and hand back a short-lived token that the
      app page carries in its links and forms. */
   // Browsers mark requests for a page inside a frame. Our normal (SameSite=Lax)
@@ -280,8 +280,8 @@ function createApp(cfg, deps) {
       try { await store.log(u && typeof u.companyId === 'string' ? u.companyId : null, 'sso_failed', why); } catch (e) { /* ignore */ }
       return res.status(status).json({ error });
     };
-    if (!req.body || !req.body.payload) return fail(400, 'HighLevel did not send any user data to the app.', 'no payload in REQUEST_USER_DATA_RESPONSE');
-    if (!u || typeof u.companyId !== 'string') return fail(401, 'HighLevel did not send a valid sign-in. Check GHL_SSO_KEY matches the app\u2019s Shared Secret, then redeploy.', u ? 'decrypted but no companyId: keys ' + Object.keys(u).join(',') : 'could not decrypt (wrong GHL_SSO_KEY?)');
+    if (!req.body || !req.body.payload) return fail(400, 'The CRM did not send any user data to the app.', 'no payload in REQUEST_USER_DATA_RESPONSE');
+    if (!u || typeof u.companyId !== 'string') return fail(401, 'The CRM did not send a valid sign-in. Check GHL_SSO_KEY matches the app\u2019s Shared Secret, then redeploy.', u ? 'decrypted but no companyId: keys ' + Object.keys(u).join(',') : 'could not decrypt (wrong GHL_SSO_KEY?)');
     if (String(u.type || '').toLowerCase() !== 'agency' || String(u.role || '').toLowerCase() !== 'admin') {
       return fail(403, 'Only agency admins can open Ultimate Customizer (you are signed in as ' + String(u.type || '?') + ' ' + String(u.role || '?') + ').', 'not an agency admin: type=' + u.type + ' role=' + u.role);
     }
@@ -292,20 +292,20 @@ function createApp(cfg, deps) {
 
   /* ---------------- customer app page ---------------- */
   const customer = ah(async (req, res, next) => {
-    // Signed in inside HighLevel's iframe (token) or directly (cookie).
+    // Signed in inside the CRM's iframe (token) or directly (cookie).
     const tok = (req.query && typeof req.query.t === 'string' && req.query.t) || (req.body && typeof req.body.t === 'string' && req.body.t) || '';
     const et = tok ? sec.unsign(tok) : null;
-    // Inside a frame the cookie is never used (on a same-site HighLevel domain it would
+    // Inside a frame the cookie is never used (on a same-site CRM domain it would
     // still be sent, and the cookie page refuses framing): frames always sign in via SSO.
     const s = et && et.t === 'emb' && et.csrf ? et : (framed(req) ? null : session(req, CUST_COOKIE));
     if (s === et && et) { res.locals.embed = tok; allowFrame(res); } else noFrame(res);
     const inst = s && await lic.get(s.companyId);
     if (!inst) {
-      // Opened inside HighLevel without a (valid) token: sign in through SSO.
+      // Opened inside the CRM without a (valid) token: sign in through SSO.
       if (req.method === 'GET' && framed(req)) return embedPage(res);
       // The sign-in page has no actions, so it may be framed; inside a frame it switches to SSO itself.
       if (req.method === 'GET') allowFrame(res);
-      if (req.method === 'GET') return html(res, tok ? views.message('Session expired', 'Close and reopen Ultimate Customizer from the HighLevel sidebar.') : views.signIn(safeNext(req.originalUrl)));
+      if (req.method === 'GET') return html(res, tok ? views.message('Session expired', 'Close and reopen Ultimate Customizer from the CRM sidebar.') : views.signIn(safeNext(req.originalUrl)));
       return res.status(401).send('Signed out');
     }
     if (req.method !== 'GET' && !csrfOk(req, s)) return res.status(403).send('Invalid CSRF token');
@@ -322,7 +322,7 @@ function createApp(cfg, deps) {
     try {
       if (!lic.validHost(host)) throw new Error('That does not look like a domain, e.g. app.youragency.com');
       await lic.bindHost(req.inst, host, 'added on app page');
-      flash(res, { type: 'ok', msg: host + ' connected.' + (lic.isShared(host) ? ' This is a shared HighLevel domain, so the theme loads after a quick user check.' : '') });
+      flash(res, { type: 'ok', msg: host + ' connected.' + (lic.isShared(host) ? ' This is a shared CRM domain, so the theme loads after a quick user check.' : '') });
     } catch (e) { flash(res, { type: 'err', msg: e.message }); }
     res.redirect(appHome(res));
   }));
@@ -436,7 +436,7 @@ function createApp(cfg, deps) {
   });
   adminAction('verify', async (req, res) => {
     const r = await lic.verify(req.inst);
-    back(req, res, 'HighLevel check: ' + r, r.startsWith('error') ? 'err' : 'ok');
+    back(req, res, 'CRM check: ' + r, r.startsWith('error') ? 'err' : 'ok');
   });
   adminAction('config', async (req, res) => {
     if (!req.body || typeof req.body.config !== 'object') return res.status(400).json({ error: 'Missing config' });
@@ -507,7 +507,7 @@ function createApp(cfg, deps) {
     }
     return { title: 'The database is not reachable.', fix: 'Open /health for details and check MONGODB_URI and Atlas Network Access.', code };
   }
-  // Turns an install failure into a message that says what to fix. HighLevel's
+  // Turns an install failure into a message that says what to fix. The CRM's
   // error text is safe to show (it never contains the client secret).
   function oauthProblem(e) {
     if (isDbError(e)) {
@@ -519,10 +519,10 @@ function createApp(cfg, deps) {
       const detail = String(b.error_description || b.message || b.error || (typeof e.body === 'string' ? e.body : '') || '').slice(0, 300);
       if (e.status === 400 && /agency/i.test(e.message)) return { status: 400, text: e.message, log: e.message };
       let hint = '';
-      if (/redirect/i.test(detail)) hint = ' The Redirect URL in your HighLevel app must be exactly ' + cfg.redirectUri + ' (it must also match BASE_URL).';
-      else if (/client|credential|unauthori[sz]ed/i.test(detail) || e.status === 401) hint = ' Check GHL_CLIENT_ID and GHL_CLIENT_SECRET in Vercel (copy them again from the HighLevel app, then redeploy).';
+      if (/redirect/i.test(detail)) hint = ' The Redirect URL in your CRM app must be exactly ' + cfg.redirectUri + ' (it must also match BASE_URL).';
+      else if (/client|credential|unauthori[sz]ed/i.test(detail) || e.status === 401) hint = ' Check GHL_CLIENT_ID and GHL_CLIENT_SECRET in Vercel (copy them again from the CRM app, then redeploy).';
       else if (/code|grant|expired|used/i.test(detail)) hint = ' Authorization codes work only once and expire quickly. Start the install again instead of reloading this page.';
-      return { status: 400, text: 'HighLevel refused the token request (HTTP ' + e.status + '): ' + (detail || 'no details') + '.' + hint, log: 'token ' + e.status + ': ' + detail };
+      return { status: 400, text: 'The CRM refused the token request (HTTP ' + e.status + '): ' + (detail || 'no details') + '.' + hint, log: 'token ' + e.status + ': ' + detail };
     }
     return { status: 500, text: 'Install failed: ' + String((e && e.message) || e).slice(0, 200), log: String((e && e.stack) || e).slice(0, 500) };
   }
