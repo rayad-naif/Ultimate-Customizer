@@ -201,7 +201,17 @@ function createApp(cfg, deps) {
   app.get('/docs', (req, res) => html(res, views.docs()));
   app.get('/privacy', (req, res) => html(res, views.privacy()));
   app.get('/terms', (req, res) => html(res, views.terms()));
-  app.get('/health', (req, res) => res.json({ ok: true }));
+  // Open /health in a browser to check the database connection (no secrets are shown).
+  app.get('/health', ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const db = await store.ping();
+      res.json({ ok: true, database: db, db_name: cfg.mongoUri ? cfg.mongoDb : null, base_url: cfg.baseUrl });
+    } catch (e) {
+      const d = dbProblem(e);
+      res.status(503).json({ ok: false, database: 'error', problem: d.title, fix: d.fix, code: d.code });
+    }
+  }));
   app.get('/dashboard', (req, res) => res.redirect(301, '/app'));
 
   app.get('/api/check', ah(async (req, res) => {
@@ -431,12 +441,34 @@ function createApp(cfg, deps) {
     res.json(await verifyBatch(40));
   }));
 
+  // Explains database failures without exposing the connection string.
+  function dbProblem(e) {
+    const msg = String((e && e.message) || '');
+    const code = (e && (e.code || e.codeName || e.name)) || '';
+    if (/bad auth|authentication failed|auth.*fail/i.test(msg)) {
+      return { title: 'MongoDB rejected the username or password.', fix: 'Check the database user and password in MONGODB_URI (Atlas \u2192 Database Access). Special characters in the password must be URL-encoded.', code };
+    }
+    if (/ENOTFOUND|querySrv|EAI_AGAIN/i.test(msg)) {
+      return { title: 'The MongoDB cluster address could not be found.', fix: 'Check the cluster host in MONGODB_URI (it should end in .mongodb.net) and that it was copied completely.', code };
+    }
+    if (/Server selection timed out|ETIMEDOUT|ECONNREFUSED|timed out|whitelist|not allowed/i.test(msg) || /ServerSelection/i.test(code)) {
+      return { title: 'MongoDB did not accept the connection (usually Network Access).', fix: 'In Atlas \u2192 Network Access, add 0.0.0.0/0 (Vercel has no fixed IP), wait a minute, then reload.', code };
+    }
+    if (/Invalid scheme|URI|connection string|mongodb\+srv/i.test(msg)) {
+      return { title: 'MONGODB_URI is not a valid connection string.', fix: 'Paste the full mongodb+srv://... string from Atlas \u2192 Connect \u2192 Drivers into MONGODB_URI.', code };
+    }
+    return { title: 'The database is not reachable.', fix: 'Open /health for details and check MONGODB_URI and Atlas Network Access.', code };
+  }
+  const isDbError = (e) => !!e && (/^Mongo/.test(e.name || '') || /querySrv|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|Server selection/i.test(String(e.message || '')));
+
   app.use((req, res) => html(res, views.message('Not found', 'That page does not exist.'), 404));
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Too large' });
     console.error(err);
-    if (req.path.startsWith('/c/') || req.path.startsWith('/api/')) return res.status(500).json({ error: 'Server error' });
+    const db = isDbError(err) ? dbProblem(err) : null;
+    if (req.path.startsWith('/c/') || req.path.startsWith('/api/')) return res.status(db ? 503 : 500).json({ error: db ? 'Database unavailable' : 'Server error' });
+    if (db) return html(res, views.message('Database connection problem', db.title + ' ' + db.fix + ' (Error code: ' + db.code + ')', { back: '/health' }), 503);
     html(res, views.message('Error', 'Something went wrong. Please try again.'), 500);
   });
 

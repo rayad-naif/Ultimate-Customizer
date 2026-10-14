@@ -56,6 +56,7 @@ function createFileStore(dataDir) {
       return copy(p);
     },
     async deletePairing(id) { delete db.pairings[id]; save(); },
+    async ping() { return 'ok (local file)'; },
     async close() { if (timer) { clearTimeout(timer); flush(); } }
   };
 }

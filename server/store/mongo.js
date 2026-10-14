@@ -78,6 +78,7 @@ function createMongoStore(uri, dbName) {
       return { id: p.id, companyId: p.companyId, key: p.key, approved: p.approved, expiresAt: p.expiresAt.toISOString() };
     },
     async deletePairing(id) { await (await db()).collection('pairings').deleteOne({ _id: id }); },
+    async ping() { await (await db()).command({ ping: 1 }); return 'ok'; },
     async close() {
       const c = global[cacheKey];
       global[cacheKey] = null;
