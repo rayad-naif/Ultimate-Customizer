@@ -246,8 +246,10 @@ function createApp(cfg, deps) {
       setCookie(res, CUST_COOKIE, sec.sign({ companyId: inst.companyId, csrf: randomToken(18), exp: Date.now() + CUST_TTL }), { maxAge: CUST_TTL });
       res.redirect(next);
     } catch (e) {
-      try { await store.log(null, 'oauth_error', e.message); } catch (x) { /* ignore */ }
-      html(res, views.message('Install failed', e.status === 400 && /agency/i.test(e.message) ? e.message : 'HighLevel did not accept the authorization. Please try again.'), 400);
+      const why = oauthProblem(e);
+      console.error('[oauth] ' + why.log);
+      try { await store.log(null, 'oauth_error', why.log); } catch (x) { /* ignore */ }
+      html(res, views.message('Install failed', why.text), why.status);
     }
   }));
 
@@ -458,6 +460,25 @@ function createApp(cfg, deps) {
       return { title: 'MONGODB_URI is not a valid connection string.', fix: 'Paste the full mongodb+srv://... string from Atlas \u2192 Connect \u2192 Drivers into MONGODB_URI.', code };
     }
     return { title: 'The database is not reachable.', fix: 'Open /health for details and check MONGODB_URI and Atlas Network Access.', code };
+  }
+  // Turns an install failure into a message that says what to fix. HighLevel's
+  // error text is safe to show (it never contains the client secret).
+  function oauthProblem(e) {
+    if (isDbError(e)) {
+      const d = dbProblem(e);
+      return { status: 503, text: 'The app could not save your install: ' + d.title + ' ' + d.fix, log: 'database: ' + d.code + ' ' + String(e.message).slice(0, 200) };
+    }
+    if (e && e.name === 'GhlError') {
+      const b = e.body && typeof e.body === 'object' ? e.body : {};
+      const detail = String(b.error_description || b.message || b.error || (typeof e.body === 'string' ? e.body : '') || '').slice(0, 300);
+      if (e.status === 400 && /agency/i.test(e.message)) return { status: 400, text: e.message, log: e.message };
+      let hint = '';
+      if (/redirect/i.test(detail)) hint = ' The Redirect URL in your HighLevel app must be exactly ' + cfg.redirectUri + ' (it must also match BASE_URL).';
+      else if (/client|credential|unauthori[sz]ed/i.test(detail) || e.status === 401) hint = ' Check GHL_CLIENT_ID and GHL_CLIENT_SECRET in Vercel (copy them again from the HighLevel app, then redeploy).';
+      else if (/code|grant|expired|used/i.test(detail)) hint = ' Authorization codes work only once and expire quickly. Start the install again instead of reloading this page.';
+      return { status: 400, text: 'HighLevel refused the token request (HTTP ' + e.status + '): ' + (detail || 'no details') + '.' + hint, log: 'token ' + e.status + ': ' + detail };
+    }
+    return { status: 500, text: 'Install failed: ' + String((e && e.message) || e).slice(0, 200), log: String((e && e.stack) || e).slice(0, 500) };
   }
   const isDbError = (e) => !!e && (/^Mongo/.test(e.name || '') || /querySrv|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|Server selection/i.test(String(e.message || '')));
 

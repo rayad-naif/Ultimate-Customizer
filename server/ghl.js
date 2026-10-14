@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 
 class GhlError extends Error {
-  constructor(message, status, body) { super(message); this.status = status; this.body = body; }
+  constructor(message, status, body) { super(message); this.name = 'GhlError'; this.status = status; this.body = body; }
 }
 
 function createGhl(cfg, fetchImpl) {
