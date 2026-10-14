@@ -74,7 +74,7 @@ fetch('/api/sso',{method:'POST',headers:{'Content-Type':'application/json'},body
 .then(function(r){return r.json()}).then(function(j){if(j.token)location.replace('/app?t='+encodeURIComponent(j.token));else fail(j.error||'Could not sign you in.')})
 .catch(function(){fail('Could not reach the server.')})});
 window.parent.postMessage({message:'REQUEST_USER_DATA'},'*');
-setTimeout(function(){if(!done)fail('HighLevel did not answer the sign-in request. Open the app in a new tab instead.')},8000);})();` : '';
+setTimeout(function(){if(!done)fail('HighLevel did not answer the sign-in request (no REQUEST_USER_DATA_RESPONSE). Make sure this page is opened from the app\u2019s sidebar link, or open the app in a new tab.')},8000);})();` : '';
     return L.layout('Ultimate Customizer', body, { customer: true, embed: true, script });
   }
 

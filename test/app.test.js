@@ -309,7 +309,7 @@ test('sidebar page inside HighLevel signs in with SSO', async (t) => {
   const s = await boot();
   s.app.locals.cfg.ghl.ssoKey = KEY;
   t.after(s.close);
-  await installAndSignIn(s);
+  const signedIn = await installAndSignIn(s);
 
   let r = await fetch(s.url + '/embed');
   assert.match(r.headers.get('content-security-policy'), /frame-ancestors https:/);
@@ -335,6 +335,13 @@ test('sidebar page inside HighLevel signs in with SSO', async (t) => {
   r = await fetch(s.url + '/app/domains/add', { method: 'POST', body: new URLSearchParams({ _csrf: csrf, t: token, host: 'app.irvex.com' }), redirect: 'manual' });
   assert.strictEqual(r.status, 302);
   assert.match(r.headers.get('location'), /^\/app\?t=/);
+  // HighLevel's sidebar pointed at /app or / instead of /embed still signs in via SSO
+  for (const path of ['/app', '/']) {
+    r = await fetch(s.url + path, { headers: { 'Sec-Fetch-Dest': 'iframe' } });
+    assert.match(r.headers.get('content-security-policy'), /frame-ancestors https:/, path);
+    assert.strictEqual(r.headers.get('x-frame-options'), null, path);
+    assert.match(await r.text(), /REQUEST_USER_DATA/, path);
+  }
   // Codes are only shown while the license is active
   s.gh.revoked = true;
   await fetch(s.url + '/webhooks/ghl', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'UNINSTALL', companyId: COMPANY }) });
@@ -343,6 +350,10 @@ test('sidebar page inside HighLevel signs in with SSO', async (t) => {
   assert.match(after, /once your license is active/);
   // Tampered token is rejected; the normal cookie page still refuses framing
   assert.match(await (await fetch(s.url + '/app?t=' + encodeURIComponent(token) + 'x')).text(), /Session expired/);
+  // Signed-out sign-in page may be framed (it switches to SSO); the signed-in cookie page never is
   r = await fetch(s.url + '/app');
+  assert.strictEqual(r.headers.get('x-frame-options'), null);
+  assert.match(await r.text(), /location\.replace\('\/embed'\)/);
+  r = await fetch(s.url + '/app', { headers: { cookie: signedIn.cust } });
   assert.strictEqual(r.headers.get('x-frame-options'), 'DENY');
 });

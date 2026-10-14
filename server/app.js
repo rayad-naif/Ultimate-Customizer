@@ -73,7 +73,7 @@ function createApp(cfg, deps) {
   };
   const noFrame = (res) => res.set({ 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "frame-ancestors 'none'" });
   // Pages HighLevel shows inside its sidebar iframe (white-label domains vary, so any https parent).
-  const allowFrame = (res) => res.set('Content-Security-Policy', 'frame-ancestors https:' + (cfg.secureCookies ? '' : ' http:'));
+  const allowFrame = (res) => { res.removeHeader('X-Frame-Options'); res.set('Content-Security-Policy', 'frame-ancestors https:' + (cfg.secureCookies ? '' : ' http:')); };
   function csrfOk(req, s) {
     const t = req.get('X-CSRF-Token') || (req.body && req.body._csrf);
     return !!(s && t && safeEqual(t, s.csrf));
@@ -203,7 +203,7 @@ function createApp(cfg, deps) {
   }));
 
   /* ---------------- public pages ---------------- */
-  app.get('/', (req, res) => html(res, views.home({ companyId: typeof req.query.companyId === 'string' ? req.query.companyId : '' })));
+  app.get('/', (req, res) => framed(req) ? embedPage(res) : html(res, views.home({ companyId: typeof req.query.companyId === 'string' ? req.query.companyId : '' })));
   app.get('/docs', (req, res) => html(res, views.docs()));
   app.get('/privacy', (req, res) => html(res, views.privacy()));
   app.get('/terms', (req, res) => html(res, views.terms()));
@@ -264,21 +264,28 @@ function createApp(cfg, deps) {
      third-party. /embed asks HighLevel for the signed-in user (SSO), we decrypt
      it with the app's shared secret and hand back a short-lived token that the
      app page carries in its links and forms. */
-  app.get('/embed', (req, res) => {
-    allowFrame(res);
-    html(res, views.embedPage({ ssoEnabled: !!cfg.ghl.ssoKey }));
-  });
+  // Browsers mark requests for a page inside a frame. Our normal (SameSite=Lax)
+  // cookie is never sent there, so a framed page can only sign in through SSO.
+  const framed = (req) => req.get('Sec-Fetch-Dest') === 'iframe';
+  const embedPage = (res) => { allowFrame(res); html(res, views.embedPage({ ssoEnabled: !!cfg.ghl.ssoKey })); };
+  app.get('/embed', (req, res) => embedPage(res));
   app.post('/api/sso', ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     if (!limitApi('sso:' + clientIp(req))) return res.status(429).json({ error: 'Too many requests' });
     if (!cfg.ghl.ssoKey) return res.status(501).json({ error: 'SSO is not configured (GHL_SSO_KEY).' });
     const u = decryptGhlSso(req.body && req.body.payload, cfg.ghl.ssoKey);
-    if (!u || typeof u.companyId !== 'string') return res.status(401).json({ error: 'HighLevel did not send a valid sign-in. Check GHL_SSO_KEY matches the app\u2019s Shared Secret.' });
+    const fail = async (status, error, why) => {
+      console.warn('[sso] ' + why);
+      try { await store.log(u && typeof u.companyId === 'string' ? u.companyId : null, 'sso_failed', why); } catch (e) { /* ignore */ }
+      return res.status(status).json({ error });
+    };
+    if (!req.body || !req.body.payload) return fail(400, 'HighLevel did not send any user data to the app.', 'no payload in REQUEST_USER_DATA_RESPONSE');
+    if (!u || typeof u.companyId !== 'string') return fail(401, 'HighLevel did not send a valid sign-in. Check GHL_SSO_KEY matches the app\u2019s Shared Secret, then redeploy.', u ? 'decrypted but no companyId: keys ' + Object.keys(u).join(',') : 'could not decrypt (wrong GHL_SSO_KEY?)');
     if (String(u.type || '').toLowerCase() !== 'agency' || String(u.role || '').toLowerCase() !== 'admin') {
-      return res.status(403).json({ error: 'Only agency admins can open Ultimate Customizer.' });
+      return fail(403, 'Only agency admins can open Ultimate Customizer (you are signed in as ' + String(u.type || '?') + ' ' + String(u.role || '?') + ').', 'not an agency admin: type=' + u.type + ' role=' + u.role);
     }
     const inst = await lic.get(u.companyId);
-    if (!inst) return res.status(404).json({ error: 'This agency has not installed Ultimate Customizer yet.' });
+    if (!inst) return fail(404, 'This agency (' + u.companyId + ') has not installed Ultimate Customizer yet.', 'no install record for ' + u.companyId);
     res.json({ token: sec.sign({ t: 'emb', companyId: inst.companyId, csrf: randomToken(18), user: String(u.email || u.userId || '').slice(0, 120), exp: Date.now() + EMBED_TTL }) });
   }));
 
@@ -291,6 +298,10 @@ function createApp(cfg, deps) {
     if (s === et && et) { res.locals.embed = tok; allowFrame(res); } else noFrame(res);
     const inst = s && await lic.get(s.companyId);
     if (!inst) {
+      // Opened inside HighLevel without a (valid) token: sign in through SSO.
+      if (req.method === 'GET' && framed(req)) return embedPage(res);
+      // The sign-in page has no actions, so it may be framed; inside a frame it switches to SSO itself.
+      if (req.method === 'GET') allowFrame(res);
       if (req.method === 'GET') return html(res, tok ? views.message('Session expired', 'Close and reopen Ultimate Customizer from the HighLevel sidebar.') : views.signIn(safeNext(req.originalUrl)));
       return res.status(401).send('Signed out');
     }

@@ -56,7 +56,7 @@ r.innerHTML=j.licensed?'<span class="pill active">Active</span> This agency has 
 :'<span class="pill uninstalled">'+(j.status==='suspended'?'Suspended':j.status==='pending'?'Pending approval':'Not active')+'</span> No active license for this Company ID.';
 }).catch(function(){r.textContent='Could not reach the server.'})}
 f.addEventListener('submit',function(e){e.preventDefault();run()});if(document.getElementById('cid').value)run();`;
-    return L.layout('Premium themes for HighLevel', body, { script, active: '/' });
+    return L.layout('Premium themes for HighLevel', body, { script, active: '/', framedToEmbed: true });
   }
 
   /* ---------------------------------------------------------------- docs */
@@ -180,7 +180,7 @@ f.addEventListener('submit',function(e){e.preventDefault();run()});if(document.g
     return L.layout('Sign in', '<div class="card" style="max-width:520px;margin:40px auto;text-align:center"><h1>Sign in with HighLevel</h1>' +
       '<p class="sub">This page is only available to the HighLevel agency that installed ' + esc(brand.name) + '. Sign in with an agency admin account to continue.</p>' +
       '<a class="btn pri" href="' + esc(href) + '">Sign in with HighLevel</a>' +
-      '<p class="note" style="margin-top:18px">Don’t have the app yet? <a href="' + esc(installHref) + '">Install it</a>.</p></div>');
+      '<p class="note" style="margin-top:18px">Don’t have the app yet? <a href="' + esc(installHref) + '">Install it</a>.</p></div>', { framedToEmbed: true });
   }
 
   return { home, docs, privacy, terms, signIn };

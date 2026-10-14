@@ -83,6 +83,8 @@ footer.site a:hover{color:var(--accent)}
 @media (max-width:640px){.top{padding:12px 16px}.code{padding-right:14px}.code .copy{position:static;margin-top:10px}.hero h1{font-size:32px}.toc{columns:1}}
 `;
 
+// Opened inside HighLevel's sidebar frame: sign in through HighLevel SSO instead.
+const FRAME_JS = "if(window.top!==window.self)location.replace('/embed');";
 const COPY_JS = `document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(!b)return;var t=document.getElementById(b.dataset.copy).textContent;
 (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1500)},function(){prompt('Copy:',t)})});`;
 
@@ -116,7 +118,7 @@ function createLayout(brand) {
       '<style>' + CSS + '</style></head><body>' +
       '<header class="top"><a class="brand" href="' + (opts.admin ? '/admin' : '/') + '">' + esc(brand.name) + (opts.admin ? ' &middot; Super Admin' : '') + '</a><nav>' + nav + '</nav></header>' +
       '<main>' + (opts.flash ? flashHtml(opts.flash) : '') + body + '</main>' + footer +
-      '<script>' + COPY_JS + (opts.script || '') + '</script></body></html>';
+      '<script>' + COPY_JS + (opts.framedToEmbed ? FRAME_JS : '') + (opts.script || '') + '</script></body></html>';
   }
 
   const flashHtml = (f) => '<div class="flash ' + (f.type === 'err' ? 'err' : 'ok') + '">' + esc(f.msg) + '</div>';
