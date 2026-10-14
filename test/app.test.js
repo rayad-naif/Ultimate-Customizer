@@ -295,3 +295,48 @@ test('approval mode: new installs stay off until approved', async (t) => {
   await fetch(s.url + '/oauth/callback?code=abc', { redirect: 'manual' });
   assert.strictEqual((await (await fetch(s.url + '/api/check?companyId=' + COMPANY)).json()).status, 'pending');
 });
+
+test('sidebar page inside HighLevel signs in with SSO', async (t) => {
+  const crypto = require('crypto');
+  const KEY = 'sso-shared-secret';
+  const enc = (obj) => { // same format as CryptoJS.AES.encrypt(text, passphrase)
+    const salt = crypto.randomBytes(8);
+    let d = Buffer.alloc(0), p = Buffer.alloc(0);
+    while (d.length < 48) { p = crypto.createHash('md5').update(Buffer.concat([p, Buffer.from(KEY), salt])).digest(); d = Buffer.concat([d, p]); }
+    const c = crypto.createCipheriv('aes-256-cbc', d.subarray(0, 32), d.subarray(32, 48));
+    return Buffer.concat([Buffer.from('Salted__'), salt, c.update(JSON.stringify(obj)), c.final()]).toString('base64');
+  };
+  const s = await boot();
+  s.app.locals.cfg.ghl.ssoKey = KEY;
+  t.after(s.close);
+  await installAndSignIn(s);
+
+  let r = await fetch(s.url + '/embed');
+  assert.match(r.headers.get('content-security-policy'), /frame-ancestors https:/);
+  assert.strictEqual(r.headers.get('x-frame-options'), null);
+  assert.match(await r.text(), /REQUEST_USER_DATA/);
+
+  const sso = (obj) => fetch(s.url + '/api/sso', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payload: obj === 'garbage' ? 'U2FsdGVkX1+garbage' : enc(obj) }) });
+  assert.strictEqual((await sso('garbage')).status, 401);
+  assert.strictEqual((await sso({ companyId: COMPANY, type: 'agency', role: 'user' })).status, 403);
+  assert.strictEqual((await sso({ companyId: COMPANY, type: 'location', role: 'admin' })).status, 403);
+  assert.strictEqual((await sso({ companyId: 'NeverInstalled1', type: 'agency', role: 'admin' })).status, 404);
+  r = await sso({ companyId: COMPANY, type: 'agency', role: 'admin', email: 'boss@irvex.com' });
+  const { token } = await r.json();
+  assert.ok(token);
+
+  // App page works with the token, framed, without cookies
+  r = await fetch(s.url + '/app?t=' + encodeURIComponent(token));
+  const page = await r.text();
+  assert.match(page, /Your code/);
+  assert.match(r.headers.get('content-security-policy'), /frame-ancestors https:/);
+  const csrf = page.match(/name="_csrf" value="([^"]+)"/)[1];
+  assert.match(page, /name="t" value=/, 'forms carry the token');
+  r = await fetch(s.url + '/app/domains/add', { method: 'POST', body: new URLSearchParams({ _csrf: csrf, t: token, host: 'app.irvex.com' }), redirect: 'manual' });
+  assert.strictEqual(r.status, 302);
+  assert.match(r.headers.get('location'), /^\/app\?t=/);
+  // Tampered token is rejected; the normal cookie page still refuses framing
+  assert.match(await (await fetch(s.url + '/app?t=' + encodeURIComponent(token) + 'x')).text(), /Session expired/);
+  r = await fetch(s.url + '/app');
+  assert.strictEqual(r.headers.get('x-frame-options'), 'DENY');
+});

@@ -43,7 +43,9 @@ function load() {
       apiBase: (env.GHL_API_BASE || 'https://services.leadconnectorhq.com').replace(/\/+$/, ''),
       apiVersion: env.GHL_API_VERSION || '2021-07-28',
       webhookEd25519Key: env.GHL_WEBHOOK_ED25519_KEY || '',
-      webhookRsaKey: env.GHL_WEBHOOK_RSA_KEY || ''
+      webhookRsaKey: env.GHL_WEBHOOK_RSA_KEY || '',
+      // App "Shared Secret" (Advanced Settings > Auth > SSO) so the sidebar page can sign users in.
+      ssoKey: env.GHL_SSO_KEY || ''
     },
     redirectUri: baseUrl + '/oauth/callback',
     brand: {

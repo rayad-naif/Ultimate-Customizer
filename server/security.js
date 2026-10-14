@@ -71,3 +71,24 @@ function rateLimiter(limit, windowMs) {
 }
 
 module.exports = { createSecurity, randomToken, sha256, safeEqual, rateLimiter };
+
+/* HighLevel custom-page SSO: the payload is CryptoJS.AES.encrypt(JSON, sharedSecret),
+   i.e. OpenSSL "Salted__" format, key+iv from EVP_BytesToKey(MD5), AES-256-CBC. */
+function decryptGhlSso(payload, key) {
+  try {
+    const raw = Buffer.from(String(payload || ''), 'base64');
+    if (raw.length < 32 || raw.subarray(0, 8).toString('latin1') !== 'Salted__' || !key) return null;
+    const salt = raw.subarray(8, 16);
+    let d = Buffer.alloc(0), prev = Buffer.alloc(0);
+    while (d.length < 48) {
+      prev = crypto.createHash('md5').update(Buffer.concat([prev, Buffer.from(key, 'utf8'), salt])).digest();
+      d = Buffer.concat([d, prev]);
+    }
+    const dec = crypto.createDecipheriv('aes-256-cbc', d.subarray(0, 32), d.subarray(32, 48));
+    const out = Buffer.concat([dec.update(raw.subarray(16)), dec.final()]).toString('utf8');
+    const obj = JSON.parse(out);
+    return obj && typeof obj === 'object' ? obj : null;
+  } catch (e) { return null; }
+}
+
+module.exports.decryptGhlSso = decryptGhlSso;

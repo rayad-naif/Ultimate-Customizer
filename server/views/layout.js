@@ -99,13 +99,16 @@ function createLayout(brand) {
     if (opts.admin) {
       nav = navLink('/admin', 'Agencies') + navLink('/admin/events', 'Activity') +
         '<form method="post" action="/admin/logout" style="margin:0">' + csrfField(opts.csrf || '') + '<button class="btn sm">Sign out</button></form>';
+    } else if (opts.embed) {
+      // Inside HighLevel: no sign-out; other pages open in a new tab.
+      nav = '<a href="/docs" target="_blank" rel="noopener">Docs</a><a href="/#support" target="_blank" rel="noopener">Support</a>';
     } else if (opts.customer) {
       nav = navLink('/app', 'My app') + navLink('/docs', 'Docs') + navLink('/', 'Support') +
         '<form method="post" action="/logout" style="margin:0">' + csrfField(opts.csrf || '') + '<button class="btn sm">Sign out</button></form>';
     } else {
       nav = navLink('/', 'Home') + navLink('/docs', 'Documentation') + navLink('/#support', 'Support') + navLink('/app', 'My app');
     }
-    const footer = opts.admin ? '' : '<footer class="site"><div class="in"><div><b>' + esc(brand.name) + '</b> &middot; Premium themes for HighLevel agencies<br>' +
+    const footer = opts.admin || opts.embed ? '' : '<footer class="site"><div class="in"><div><b>' + esc(brand.name) + '</b> &middot; Premium themes for HighLevel agencies<br>' +
       'Support: <a href="mailto:' + esc(brand.supportEmail) + '" style="color:var(--accent)">' + esc(brand.supportEmail) + '</a></div>' +
       '<div><a href="/docs">Documentation</a><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/#check">License check</a></div></div></footer>';
     return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +

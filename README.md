@@ -10,6 +10,7 @@ A HighLevel Marketplace app (Target User: **Agency**) that lets an agency restyl
 | Documentation | `/docs` |
 | Privacy Policy | `/privacy` |
 | Terms of Service | `/terms` |
+| **Sidebar page** (HighLevel app's Custom Page / Live URL) | `/embed`: signs the agency admin in via HighLevel SSO (`GHL_SSO_KEY`) and shows the app page inside HighLevel |
 | **App page** (after HighLevel OAuth only) | `/app`: the two snippets and the connected domains |
 | **Super Admin login** | `/admin/login` (password = `ADMIN_PASSWORD`) |
 | OAuth redirect URL (put in the GHL app) | `/oauth/callback` |

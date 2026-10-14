@@ -1,6 +1,6 @@
 'use strict';
 const express = require('express');
-const { createSecurity, randomToken, safeEqual, rateLimiter } = require('./security');
+const { createSecurity, randomToken, safeEqual, rateLimiter, decryptGhlSso } = require('./security');
 const { createStore } = require('./store');
 const { createGhl } = require('./ghl');
 const { createLicensing } = require('./licensing');
@@ -13,6 +13,7 @@ const FLASH_COOKIE = 'uc_flash';
 const STATE_COOKIE = 'uc_oauth_state';
 const ADMIN_TTL = 12 * 3600e3;
 const CUST_TTL = 7 * 24 * 3600e3;
+const EMBED_TTL = 4 * 3600e3;
 
 function createApp(cfg, deps) {
   deps = deps || {};
@@ -47,7 +48,8 @@ function createApp(cfg, deps) {
   function setCookie(res, name, value, o) {
     o = o || {};
     let c = name + '=' + encodeURIComponent(value) + '; Path=/; HttpOnly; SameSite=' + (o.sameSite || 'Lax');
-    if (cfg.secureCookies) c += '; Secure';
+    if (cfg.secureCookies || o.sameSite === 'None') c += '; Secure';
+    if (o.partitioned) c += '; Partitioned';
     if (o.maxAge !== undefined) c += '; Max-Age=' + Math.floor(o.maxAge / 1000);
     const prev = res.getHeader('Set-Cookie');
     res.setHeader('Set-Cookie', (Array.isArray(prev) ? prev : prev ? [prev] : []).concat(c));
@@ -57,17 +59,21 @@ function createApp(cfg, deps) {
     const s = sec.unsign(parseCookies(req)[name]);
     return s && s.csrf ? s : null;
   }
-  const flash = (res, f) => setCookie(res, FLASH_COOKIE, sec.encrypt(JSON.stringify(f)), { maxAge: 120e3 });
+  // Inside HighLevel's iframe a normal cookie is third-party, so embedded pages use a partitioned one.
+  const flashOpts = (res) => (res.locals.embed ? { sameSite: 'None', partitioned: true } : {});
+  const flash = (res, f) => setCookie(res, FLASH_COOKIE, sec.encrypt(JSON.stringify(f)), Object.assign({ maxAge: 120e3 }, flashOpts(res)));
   function takeFlash(req, res) {
     const raw = parseCookies(req)[FLASH_COOKIE];
     if (!raw) return null;
-    clearCookie(res, FLASH_COOKIE);
+    setCookie(res, FLASH_COOKIE, '', Object.assign({ maxAge: 0 }, flashOpts(res)));
     try { return JSON.parse(sec.decrypt(raw)); } catch (e) { return null; }
   }
   const html = (res, body, status) => {
     res.status(status || 200).set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'same-origin', 'X-Content-Type-Options': 'nosniff' }).send(body);
   };
   const noFrame = (res) => res.set({ 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "frame-ancestors 'none'" });
+  // Pages HighLevel shows inside its sidebar iframe (white-label domains vary, so any https parent).
+  const allowFrame = (res) => res.set('Content-Security-Policy', 'frame-ancestors https:' + (cfg.secureCookies ? '' : ' http:'));
   function csrfOk(req, s) {
     const t = req.get('X-CSRF-Token') || (req.body && req.body._csrf);
     return !!(s && t && safeEqual(t, s.csrf));
@@ -253,23 +259,49 @@ function createApp(cfg, deps) {
     }
   }));
 
+  /* ---------------- app page inside HighLevel (sidebar) ----------------
+     HighLevel opens the app's custom page in an iframe, where our cookies are
+     third-party. /embed asks HighLevel for the signed-in user (SSO), we decrypt
+     it with the app's shared secret and hand back a short-lived token that the
+     app page carries in its links and forms. */
+  app.get('/embed', (req, res) => {
+    allowFrame(res);
+    html(res, views.embedPage({ ssoEnabled: !!cfg.ghl.ssoKey }));
+  });
+  app.post('/api/sso', ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (!limitApi('sso:' + clientIp(req))) return res.status(429).json({ error: 'Too many requests' });
+    if (!cfg.ghl.ssoKey) return res.status(501).json({ error: 'SSO is not configured (GHL_SSO_KEY).' });
+    const u = decryptGhlSso(req.body && req.body.payload, cfg.ghl.ssoKey);
+    if (!u || typeof u.companyId !== 'string') return res.status(401).json({ error: 'HighLevel did not send a valid sign-in. Check GHL_SSO_KEY matches the app\u2019s Shared Secret.' });
+    if (String(u.type || '').toLowerCase() !== 'agency' || String(u.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ error: 'Only agency admins can open Ultimate Customizer.' });
+    }
+    const inst = await lic.get(u.companyId);
+    if (!inst) return res.status(404).json({ error: 'This agency has not installed Ultimate Customizer yet.' });
+    res.json({ token: sec.sign({ t: 'emb', companyId: inst.companyId, csrf: randomToken(18), user: String(u.email || u.userId || '').slice(0, 120), exp: Date.now() + EMBED_TTL }) });
+  }));
+
   /* ---------------- customer app page ---------------- */
   const customer = ah(async (req, res, next) => {
-    const s = session(req, CUST_COOKIE);
+    // Signed in inside HighLevel's iframe (token) or directly (cookie).
+    const tok = (req.query && typeof req.query.t === 'string' && req.query.t) || (req.body && typeof req.body.t === 'string' && req.body.t) || '';
+    const et = tok ? sec.unsign(tok) : null;
+    const s = et && et.t === 'emb' && et.csrf ? et : session(req, CUST_COOKIE);
+    if (s === et && et) { res.locals.embed = tok; allowFrame(res); } else noFrame(res);
     const inst = s && await lic.get(s.companyId);
     if (!inst) {
-      if (req.method === 'GET') return html(res, views.signIn(safeNext(req.originalUrl)));
+      if (req.method === 'GET') return html(res, tok ? views.message('Session expired', 'Close and reopen Ultimate Customizer from the HighLevel sidebar.') : views.signIn(safeNext(req.originalUrl)));
       return res.status(401).send('Signed out');
     }
     if (req.method !== 'GET' && !csrfOk(req, s)) return res.status(403).send('Invalid CSRF token');
-    noFrame(res);
     req.s = s; req.inst = inst;
     next();
   });
+  const appHome = (res) => '/app' + (res.locals.embed ? '?t=' + encodeURIComponent(res.locals.embed) : '');
 
   app.get('/app', customer, (req, res) => {
-    noFrame(res);
-    html(res, views.appPage({ inst: req.inst, status: lic.statusOf(req.inst), baseUrl: cfg.baseUrl, csrf: req.s.csrf, flash: takeFlash(req, res) }));
+    html(res, views.appPage({ inst: req.inst, status: lic.statusOf(req.inst), baseUrl: cfg.baseUrl, csrf: req.s.csrf, flash: takeFlash(req, res), embedToken: res.locals.embed || '' }));
   });
   app.post('/app/domains/add', customer, ah(async (req, res) => {
     const host = lic.cleanHost(req.body.host);
@@ -278,17 +310,17 @@ function createApp(cfg, deps) {
       await lic.bindHost(req.inst, host, 'added on app page');
       flash(res, { type: 'ok', msg: host + ' connected.' + (lic.isShared(host) ? ' This is a shared HighLevel domain, so the theme loads after a quick user check.' : '') });
     } catch (e) { flash(res, { type: 'err', msg: e.message }); }
-    res.redirect('/app');
+    res.redirect(appHome(res));
   }));
   app.post('/app/domains/remove', customer, ah(async (req, res) => {
     await lic.unbindHost(req.inst, lic.cleanHost(req.body.host), 'agency');
     flash(res, { type: 'ok', msg: 'Domain removed.' });
-    res.redirect('/app');
+    res.redirect(appHome(res));
   }));
   app.post('/app/revoke-editors', customer, ah(async (req, res) => {
     await lic.revokeEditors(req.inst, 'agency');
     flash(res, { type: 'ok', msg: 'All editors signed out. Browsers must reconnect to edit.' });
-    res.redirect('/app');
+    res.redirect(appHome(res));
   }));
   app.post('/logout', (req, res) => { clearCookie(res, CUST_COOKIE); res.redirect('/'); });
 
