@@ -313,5 +313,39 @@
     { id: 'forest', name: 'Forest Copper', p: { base: '#0b1410', surface: '#121f19', surfaceAlt: '#1a2b23', surfaceDeep: '#22382e', primary: '#7bd389', secondary: '#4f9d69', highlight: '#e08e45', highlightDark: '#b86a26', text: '#ecf7ef', textMuted: '#a3c4ad', textOnLight: '#0b1410', lightSurface: '#f4f8f5', loginAccent: '#e08e45' } }
   ];
 
-  return { GROUPS, TOKENS, ORDER, SECTIONS, THEMES, FONTS, SYSTEM_FONTS };
+  THEMES.push(
+    { id: 'aurora', name: 'Aurora Borealis', p: { base: '#020d14', surface: '#06161f', surfaceAlt: '#0a2230', surfaceDeep: '#0d2c3d', primary: '#5ef2c9', secondary: '#7b61ff', highlight: '#c3f73a', highlightDark: '#8db51f', text: '#e8fff8', textMuted: '#93c9c0', textOnLight: '#04121a', lightSurface: '#f2fbf9', loginAccent: '#7b61ff' } },
+    { id: 'carbon-red', name: 'Carbon Racing', p: { base: '#0b0b0d', surface: '#141417', surfaceAlt: '#1d1d22', surfaceDeep: '#26262d', primary: '#ff3b30', secondary: '#c7c7cc', highlight: '#ffcc00', highlightDark: '#cc9f00', text: '#f2f2f7', textMuted: '#a1a1aa', textOnLight: '#111113', lightSurface: '#f7f7f8', loginAccent: '#ff3b30' } },
+    { id: 'sapphire-light', name: 'Sapphire Light', p: { base: '#f3f6fb', surface: '#ffffff', surfaceAlt: '#e6ecf5', surfaceDeep: '#d7e1ef', primary: '#2f5bea', secondary: '#4f7cff', highlight: '#00b894', highlightDark: '#00876c', text: '#14213d', textBright: '#14213d', textMuted: '#5b6b85', textOnLight: '#14213d', lightSurface: '#f8fafd', loginAccent: '#2f5bea' }, s: { 'login.btnText': '#ffffff', 'pill.text': '#ffffff', 'content.btnHoverText': '#ffffff' } },
+    { id: 'lavender-light', name: 'Lavender Mist', p: { base: '#f6f3fc', surface: '#ffffff', surfaceAlt: '#ece6f8', surfaceDeep: '#ded4f2', primary: '#7c3aed', secondary: '#a78bfa', highlight: '#ec4899', highlightDark: '#be185d', text: '#2e1065', textBright: '#2e1065', textMuted: '#6b5b95', textOnLight: '#2e1065', lightSurface: '#fbf9ff', loginAccent: '#7c3aed' }, s: { 'login.btnText': '#ffffff', 'pill.text': '#ffffff', 'content.btnHoverText': '#ffffff' } }
+  );
+
+  /* Each theme's look beyond color: sidebar, menu, fonts, shape, motion, login. */
+  const THEME_LOOK = {
+    'violet-nova': { 'sidebar.bgStyle': 'gradient', 'sidebar.angle': 160, 'sidebar.edge': true, 'nav.activeBg': true, 'login.logoFloat': true, 'type.font': 'Space Grotesk', 'fx.radius': 1.2 },
+    emerald: { 'type.font': 'Manrope', 'nav.activeBg': true, 'sidebar.edge': true, 'fx.glow': 0.6, 'login.cardRadius': 18 },
+    crimson: { 'sidebar.bgStyle': 'gradient', 'sidebar.angle': 200, 'type.headingFont': 'Rajdhani', 'lnet.count': 160, 'login.gridSize': 36 },
+    ocean: { 'sidebar.bgStyle': 'gradient', 'fx.radius': 1.3, 'type.font': 'Plus Jakarta Sans', 'login.logoFloat': true, 'net.speed': 0.6 },
+    'midnight-gold': { 'type.font': 'Raleway', 'type.headingFont': 'Montserrat', 'nav.transform': 'uppercase', 'nav.letterSpacing': 1.5, 'nav.fontSize': 12.5, 'fx.glow': 0.5, 'sidebar.edge': true, 'net.count': 90, 'login.cardRadius': 14 },
+    sunset: { 'sidebar.bgStyle': 'gradient', 'sidebar.angle': 135, 'type.font': 'Nunito', 'fx.radius': 1.5, 'login.logoFloat': true, 'login.cardRadius': 30 },
+    matrix: { 'type.font': 'Exo 2', 'type.headingFont': 'Orbitron', 'fx.radius': 0.4, 'net.count': 220, 'net.speed': 1.4, 'lnet.speed': 1.4, 'nav.activeBg': true, 'login.gridSize': 30, 'login.meshSpeed': 8, 'login.cardRadius': 6 },
+    cyberpunk: { 'type.headingFont': 'Orbitron', 'type.font': 'Rajdhani', 'fx.radius': 0.3, 'sidebar.edge': true, 'fx.glow': 1.6, 'nav.transform': 'uppercase', 'nav.letterSpacing': 1.2, 'login.meshSpeed': 9, 'login.cardRadius': 4 },
+    royal: { 'type.headingFont': 'Montserrat', 'sidebar.bgStyle': 'gradient', 'nav.activeBg': true, 'login.logoFloat': true },
+    rose: { 'type.font': 'DM Sans', 'fx.radius': 1.6, 'fx.glow': 0.5, 'login.cardRadius': 32, 'sidebar.bgStyle': 'gradient' },
+    graphite: { 'fx.glow': 0.3, 'net.count': 80, 'net.speed': 0.4, 'lnet.count': 70, 'fx.radius': 0.8, 'nav.activeBg': true },
+    solar: { 'type.font': 'Outfit', 'sidebar.bgStyle': 'gradient', 'sidebar.angle': 200, 'sidebar.edge': true },
+    arctic: { 'fx.glow': 0.2, 'sidebar.edge': true, 'nav.activeBg': true, 'type.font': 'Plus Jakarta Sans', 'net.count': 90 },
+    blush: { 'fx.glow': 0.2, 'type.font': 'Urbanist', 'fx.radius': 1.5, 'nav.activeBg': true },
+    forest: { 'type.font': 'Sora', 'sidebar.bgStyle': 'gradient', 'sidebar.angle': 170, 'fx.glow': 0.6, 'login.logoFloat': true },
+    aurora: { 'sidebar.bgStyle': 'gradient', 'sidebar.angle': 150, 'sidebar.edge': true, 'type.font': 'Outfit', 'login.logoFloat': true, 'fx.glow': 1.3 },
+    'carbon-red': { 'type.font': 'Rajdhani', 'type.headingFont': 'Exo 2', 'fx.radius': 0.5, 'nav.transform': 'uppercase', 'nav.letterSpacing': 1, 'nav.activeBg': true, 'net.speed': 1.6, 'fx.glow': 0.7 },
+    'sapphire-light': { 'fx.glow': 0.15, 'nav.activeBg': true, 'type.font': 'Manrope', 'net.count': 80, 'fx.radius': 1.2 },
+    'lavender-light': { 'fx.glow': 0.2, 'nav.activeBg': true, 'type.font': 'Poppins', 'fx.radius': 1.4, 'login.logoFloat': true }
+  };
+  THEMES.forEach((th) => { th.s = Object.assign({}, THEME_LOOK[th.id] || {}, th.s || {}); });
+  // Settings a theme controls; switching themes resets them before applying the new one.
+  const THEME_KEYS = [];
+  THEMES.forEach((th) => Object.keys(th.s).forEach((k) => { if (THEME_KEYS.indexOf(k) === -1) THEME_KEYS.push(k); }));
+
+  return { GROUPS, TOKENS, ORDER, SECTIONS, THEMES, THEME_KEYS, FONTS, SYSTEM_FONTS };
 });

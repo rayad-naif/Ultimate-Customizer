@@ -32,7 +32,7 @@ function fakeGhl() {
   return state;
 }
 
-async function boot() {
+async function boot(extra) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uc-'));
   const gh = fakeGhl();
   const cfg = {
@@ -44,6 +44,7 @@ async function boot() {
     redirectUri: 'http://127.0.0.1/oauth/callback',
     brand: { name: 'Ultimate Customizer', supportEmail: 'help@example.com', legalName: 'UC', legalUpdated: 'today', marketplaceUrl: '' }
   };
+  Object.assign(cfg, extra || {});
   const app = createApp(cfg, { fetch: gh.fetch });
   const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
   const url = 'http://127.0.0.1:' + server.address().port;
@@ -244,4 +245,53 @@ test('public pages, sign-in redirect and manual licenses', async (t) => {
   assert.ok(!detail.includes('<b>Comp</b>'));
   assert.strictEqual((await (await fetch(s.url + '/api/check?companyId=CompTest999')).json()).licensed, true);
   assert.strictEqual((await fetch(s.url + '/api/check?companyId=../../etc')).status, 400);
+});
+
+test('agencies that have not bought get nothing', async (t) => {
+  const s = await boot();
+  t.after(s.close);
+  const H = { Referer: 'https://app.someagency.com/', Origin: 'https://app.someagency.com' };
+  // Made-up asset key (no install record): inert CSS + JS, no template, no config
+  for (const f of ['theme.css', 'customizer.js']) assert.match(await (await fetch(s.url + '/c/k_neverpurchased1234/' + f, { headers: H })).text(), /no active license/);
+  assert.strictEqual((await fetch(s.url + '/c/k_neverpurchased1234/template.css', { headers: H })).status, 403);
+  assert.strictEqual((await fetch(s.url + '/c/k_neverpurchased1234/v.json', { headers: H })).status, 403);
+  assert.strictEqual((await fetch(s.url + '/c/k_neverpurchased1234/theme.css', { headers: Object.assign({ 'X-UC-Verified': '1' }, H) })).status, 200);
+  assert.match(await (await fetch(s.url + '/c/k_neverpurchased1234/theme.css', { headers: Object.assign({ 'X-UC-Verified': '1' }, H) })).text(), /no active license/);
+  assert.strictEqual((await (await fetch(s.url + '/api/check?companyId=NeverBought123')).json()).licensed, false);
+  // Saving or connecting with a made-up key is refused
+  let r = await fetch(s.url + '/api/connect/claim', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, H), body: JSON.stringify({ key: 'k_neverpurchased1234', pair: 'abcdefghijklmnopqrstuvwxyz' }) });
+  assert.strictEqual(r.status, 403);
+  r = await fetch(s.url + '/api/config', { method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json', Authorization: 'Bearer x' }, H), body: JSON.stringify({ key: 'k_neverpurchased1234', config: {} }) });
+  assert.strictEqual(r.status, 401);
+  // Forged session cookies are rejected
+  r = await fetch(s.url + '/app', { headers: { cookie: 'uc_cust=eyJjb21wYW55SWQiOiJBZ2VuY3lDbzEyMzQ1NiJ9.forged' } });
+  assert.match(await r.text(), /Sign in with HighLevel/);
+});
+
+test('approval mode: new installs stay off until approved', async (t) => {
+  const s = await boot({ newInstallStatus: 'pending' });
+  t.after(s.close);
+  const a = await installAndSignIn(s);
+  assert.match(a.page, /Pending approval/);
+  assert.deepStrictEqual(await (await fetch(s.url + '/api/check?companyId=' + COMPANY)).json(), { companyId: COMPANY, licensed: false, status: 'pending' });
+  assert.match(await (await fetch(s.url + '/c/' + a.key + '/customizer.js', { headers: from(DOMAIN) })).text(), /License inactive/);
+  // Connecting a domain is refused while pending
+  const r = await fetch(s.url + '/connect?key=' + a.key + '&pair=abcdefghijklmnopqrstuvwxyz', { headers: { cookie: a.cust } });
+  assert.strictEqual(r.status, 400);
+  // Super Admin approves
+  let res = await fetch(s.url + '/admin/login', { method: 'POST', body: new URLSearchParams({ password: 'admin-password-123' }), redirect: 'manual' });
+  const adm = cookiesOf(res);
+  const list = await (await fetch(s.url + '/admin', { headers: { cookie: adm } })).text();
+  assert.match(list, /1 pending approval/);
+  const acsrf = list.match(/name="_csrf" value="([^"]+)"/)[1];
+  await fetch(s.url + '/admin/i/' + COMPANY + '/approve', { method: 'POST', headers: { cookie: adm }, body: new URLSearchParams({ _csrf: acsrf }), redirect: 'manual' });
+  assert.strictEqual((await (await fetch(s.url + '/api/check?companyId=' + COMPANY)).json()).licensed, true);
+  await connectDomain(s, a, DOMAIN);
+  assert.match(await (await fetch(s.url + '/c/' + a.key + '/customizer.js', { headers: { Referer: DOMAIN + '/' } })).text(), /"mode":"full"/);
+  // Uninstalling and signing in again does not reactivate on its own
+  s.gh.revoked = true;
+  await fetch(s.url + '/webhooks/ghl', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'UNINSTALL', companyId: COMPANY }) });
+  s.gh.revoked = false;
+  await fetch(s.url + '/oauth/callback?code=abc', { redirect: 'manual' });
+  assert.strictEqual((await (await fetch(s.url + '/api/check?companyId=' + COMPANY)).json()).status, 'pending');
 });

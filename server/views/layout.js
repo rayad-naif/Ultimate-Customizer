@@ -5,7 +5,7 @@ const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 const fmt = (iso) => (iso ? esc(String(iso).replace('T', ' ').slice(0, 16)) + ' UTC' : '&mdash;');
 
-const STATUS_LABEL = { active: 'Active', suspended: 'Suspended', uninstalled: 'Uninstalled', not_installed: 'Not installed' };
+const STATUS_LABEL = { active: 'Active', pending: 'Pending approval', suspended: 'Suspended', uninstalled: 'Uninstalled', not_installed: 'Not installed' };
 const pill = (status) => '<span class="pill ' + esc(status) + '">' + esc(STATUS_LABEL[status] || status) + '</span>';
 
 const CSS = `
@@ -49,7 +49,7 @@ textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5p
 .flash.err{border-color:rgba(255,77,90,.5);background:rgba(255,77,90,.08)}
 .pill{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;border:1px solid;vertical-align:middle}
 .pill.active{color:var(--ok);border-color:rgba(46,230,166,.5)}
-.pill.suspended{color:var(--gold);border-color:rgba(255,215,0,.5)}
+.pill.suspended,.pill.pending{color:var(--gold);border-color:rgba(255,215,0,.5)}
 .pill.uninstalled,.pill.not_installed{color:var(--bad);border-color:rgba(255,77,90,.5)}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{text-align:left;padding:10px 8px;border-bottom:1px solid rgba(0,206,209,.12);vertical-align:top}

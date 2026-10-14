@@ -75,6 +75,15 @@ test('themes replace colors but keep layout and text settings', () => {
   assert.strictEqual(t.values['login.layout'], 'centered');
   assert.strictEqual(t.values['login.tagline'], 'Hi');
   assert.strictEqual(E.resolve(t)['nav.hover'], '#b388ff');
+  // Themes carry their own sidebar/login/font look...
+  assert.strictEqual(E.resolve(t)['sidebar.bgStyle'], 'gradient');
+  assert.strictEqual(E.resolve(t)['login.logoFloat'], true);
+  // ...which is cleared when switching to a theme without it.
+  const back = E.applyTheme(t, 'irvex');
+  assert.strictEqual(E.resolve(back)['sidebar.bgStyle'], 'solid');
+  assert.strictEqual(E.resolve(back)['type.font'], 'Inter');
+  assert.strictEqual(back.values['login.layout'], 'centered');
+  assert.ok(R.THEMES.length >= 20);
 });
 
 test('switches, sections and extras', () => {

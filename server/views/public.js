@@ -16,7 +16,7 @@ function createPublicViews(L, brand) {
         '</i><div>' + esc(t.name) + '</div></div>';
     }).join('');
     const feats = [
-      ['\u{1F3A8}', R.THEMES.length + ' prebuilt themes', 'One click to restyle the whole CRM, from neon dark themes to clean light ones.'],
+      ['\u{1F3A8}', R.THEMES.length + ' prebuilt themes', 'One click restyles the whole CRM \u2014 colors, sidebar, fonts, animations and login page \u2014 from neon dark to clean light.'],
       ['\u{1F39B}️', R.ORDER.length + '+ settings', 'Every color, glow, blur, radius, font, speed and size, section by section.'],
       ['\u{1F510}', 'Login page designer', 'Split or centered layouts, background image, logo frame, animated network, custom heading and tagline.'],
       ['✨', 'Live animations', 'Interactive particle networks, click ripples, glowing tabs, animated banner and loader.'],
@@ -53,7 +53,7 @@ function run(){var id=document.getElementById('cid').value.trim();if(!id)return;
 fetch('/api/check?companyId='+encodeURIComponent(id)).then(function(x){return x.json()}).then(function(j){
 if(j.error){r.textContent=j.error;return;}
 r.innerHTML=j.licensed?'<span class="pill active">Active</span> This agency has an active license.'
-:'<span class="pill uninstalled">'+(j.status==='suspended'?'Suspended':'Not active')+'</span> No active license for this Company ID.';
+:'<span class="pill uninstalled">'+(j.status==='suspended'?'Suspended':j.status==='pending'?'Pending approval':'Not active')+'</span> No active license for this Company ID.';
 }).catch(function(){r.textContent='Could not reach the server.'})}
 f.addEventListener('submit',function(e){e.preventDefault();run()});if(document.getElementById('cid').value)run();`;
     return L.layout('Premium themes for HighLevel', body, { script, active: '/' });
@@ -93,7 +93,7 @@ f.addEventListener('submit',function(e){e.preventDefault();run()});if(document.g
       '<li><b>Menu</b>: reorder, rename and hide sidebar items, and hide anything by CSS selector.</li><li><b>Advanced</b>: switch theme sections off, add custom CSS, back up or restore settings.</li></ul>' +
       '<p>Use the search box to find any of the ' + R.ORDER.length + ' settings by name. A gold dot means you changed a setting; the &#8634; button resets it to the theme value. <b>Undo session</b> reverts everything you changed since opening the panel.</p>' +
 
-      '<h2 id="themes">5. Themes</h2><p>Picking a theme sets the brand palette and resets section colors to follow it. Layout, effects, text, menu and advanced settings are kept. Most section colors follow the palette until you change them, so adjusting <b>Colors &rarr; Brand palette</b> restyles everything at once.</p>' +
+      '<h2 id="themes">5. Themes</h2><p>Picking a theme sets the brand palette, resets section colors to follow it, and applies the theme\u2019s own look (sidebar fill and edge glow, active-item highlight, fonts, glow strength, roundness, network animation and login card). Your login layout, background image, texts, menu, section switches and custom CSS are kept. Most section colors follow the palette until you change them, so adjusting <b>Colors &rarr; Brand palette</b> restyles everything at once.</p>' +
 
       '<h2 id="login">6. Login page designer</h2><p>Open the <b>Login page</b> tab and click <b>Show login page preview</b> to design it without signing out. You can change:</p>' +
       '<ul><li>Layout: form left, form right, or a centered form over the background</li><li>Background color, glow orbs, grid, animation speed, or your own background image</li>' +

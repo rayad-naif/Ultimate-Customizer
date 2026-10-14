@@ -400,7 +400,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       return '<button class="theme' + (draft.theme === th.id ? ' on' : '') + '" data-theme="' + th.id + '"><i>' +
         [p.base, p.surfaceAlt, p.secondary, p.primary, p.highlight].map((c) => '<span style="background:' + c + '"></span>').join('') +
         '</i>' + esc(th.name) + '</button>';
-    }).join('') + '</div><p class="note">Picking a theme sets the whole palette and every section color. Your layout, effects, login text and menu settings are kept. Fine-tune anything afterwards in the other tabs.</p>';
+    }).join('') + '</div><p class="note">Each theme sets the palette, every section color and its own look: sidebar style, fonts, glow, roundness, animations and login touches. Your login layout, background image, texts, menu and custom CSS are kept. Fine-tune anything afterwards in the other tabs.</p>';
   }
 
   function sidebarItems() {

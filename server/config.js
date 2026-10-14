@@ -30,6 +30,9 @@ function load() {
     mongoDb: env.MONGODB_DB || 'UltimateThemeCustomizer',
     cronSecret: env.CRON_SECRET || '',
     serverless: !!env.VERCEL,
+    // 'active' (default): an agency is licensed as soon as it installs via HighLevel.
+    // 'pending': new agencies wait until you click Approve in Super Admin.
+    newInstallStatus: env.NEW_INSTALL_STATUS === 'pending' ? 'pending' : 'active',
     adminPassword: env.ADMIN_PASSWORD || '',
     sessionSecret: env.SESSION_SECRET || '',
     ghl: {

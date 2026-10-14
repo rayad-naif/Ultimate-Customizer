@@ -16,7 +16,9 @@ function createAppViews(L, brand) {
     const inst = o.inst, status = o.status;
     let body = '<h1>' + esc(inst.name || 'Your agency') + ' ' + L.pill(status) + '</h1><p class="sub">Company ID <code>' + esc(inst.companyId) + '</code></p>';
     if (status !== 'active') {
-      body += '<div class="flash err">' + (status === 'suspended'
+      body += '<div class="flash err">' + (status === 'pending'
+        ? 'Thanks for installing! Your license is being activated. Your theme starts working as soon as it is approved. Questions: ' + esc(brand.supportEmail) + '.'
+        : status === 'suspended'
         ? 'This license is suspended, so your theme is switched off. Contact ' + esc(brand.supportEmail) + '.'
         : 'The app is not installed on this agency, so your theme is switched off. Reinstall it from the HighLevel Marketplace.') + '</div>';
     }

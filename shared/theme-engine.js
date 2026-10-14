@@ -280,7 +280,8 @@
     const cfg = sanitize(input);
     const th = R.THEMES.find((t) => t.id === themeId);
     if (!th) return cfg;
-    Object.keys(cfg.values).forEach((id) => { if (TOKENS[id].type === 'color' || id === 'fx.glow') delete cfg.values[id]; });
+    // Colors and the theme's look settings are replaced; layout, text, menu and custom CSS stay.
+    Object.keys(cfg.values).forEach((id) => { if (TOKENS[id].type === 'color' || R.THEME_KEYS.indexOf(id) !== -1) delete cfg.values[id]; });
     Object.assign(cfg.values, th.p, th.s || {});
     cfg.theme = th.id;
     return sanitize(cfg);

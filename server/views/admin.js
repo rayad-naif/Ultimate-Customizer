@@ -12,7 +12,7 @@ function createAdminViews(L, app) {
   }
 
   function adminList(o) {
-    const counts = { active: 0, suspended: 0, uninstalled: 0 };
+    const counts = { active: 0, pending: 0, suspended: 0, uninstalled: 0 };
     const rows = o.rows.map((r) => {
       counts[r.status] = (counts[r.status] || 0) + 1;
       const blocked = Object.keys(r.inst.blockedHosts || {}).length;
@@ -22,7 +22,7 @@ function createAdminViews(L, app) {
         '<td>' + (blocked ? '<b style="color:var(--bad)">' + blocked + '</b>' : '<small>0</small>') + '</td>' +
         '<td><small>' + L.fmt(r.inst.lastVerifiedAt) + '<br>' + esc(r.inst.lastVerifyResult || '') + '</small></td></tr>';
     }).join('');
-    const body = '<h1>Agencies</h1><p class="sub">' + o.rows.length + ' total &middot; ' + counts.active + ' active &middot; ' + counts.suspended + ' suspended &middot; ' + counts.uninstalled + ' uninstalled</p>' +
+    const body = '<h1>Agencies</h1><p class="sub">' + o.rows.length + ' total &middot; ' + counts.active + ' active &middot; ' + (counts.pending ? '<b style="color:var(--gold)">' + counts.pending + ' pending approval</b> &middot; ' : '') + counts.suspended + ' suspended &middot; ' + counts.uninstalled + ' uninstalled</p>' +
       '<div class="card"><div class="row" style="justify-content:space-between"><input type="text" id="q" placeholder="Filter by name, company ID or domain" style="max-width:340px">' +
       L.postBtn('/admin/verify-all', 'Verify installs with HighLevel', o.csrf) + '</div>' +
       '<div class="scroll"><table id="t"><thead><tr><th>Agency</th><th>Status</th><th>Installed</th><th>Connected domains</th><th>Blocked</th><th>Last check</th></tr></thead><tbody>' +
@@ -45,12 +45,13 @@ function createAdminViews(L, app) {
     const body = '<p><a href="/admin">&larr; All agencies</a></p><h1>' + esc(inst.name || '(no name)') + ' ' + L.pill(o.status) + '</h1>' +
       '<p class="sub"><code>' + esc(inst.companyId) + '</code></p>' +
       '<div class="grid"><div class="card"><h2>License</h2><dl>' +
-      '<dt>Installed in GHL</dt><dd>' + (inst.installed ? 'yes' : 'no') + '</dd><dt>Suspended</dt><dd>' + (inst.suspended ? 'yes' : 'no') + '</dd>' +
+      '<dt>Installed in GHL</dt><dd>' + (inst.installed ? 'yes' : 'no') + '</dd><dt>Approved</dt><dd>' + (inst.pending ? 'no (pending)' : 'yes') + '</dd><dt>Suspended</dt><dd>' + (inst.suspended ? 'yes' : 'no') + '</dd>' +
       '<dt>Source</dt><dd>' + esc(inst.source) + '</dd><dt>Installed</dt><dd>' + L.fmt(inst.installedAt) + '</dd><dt>Uninstalled</dt><dd>' + L.fmt(inst.uninstalledAt) + '</dd>' +
       '<dt>Installed by user</dt><dd>' + esc(inst.installedBy || '') + '</dd><dt>Token scope</dt><dd>' + esc(inst.scope || '') + '</dd>' +
       '<dt>Last check</dt><dd>' + L.fmt(inst.lastVerifiedAt) + ' ' + esc(inst.lastVerifyResult || '') + '</dd>' +
       '<dt>Theme</dt><dd>' + esc(inst.config.theme) + ' &middot; v' + esc(inst.configVersion) + ' &middot; ' + Object.keys(inst.config.values).length + ' custom settings</dd></dl>' +
       '<div class="row" style="margin-top:14px">' +
+      (inst.pending ? L.postBtn(base + '/approve', 'Approve license', o.csrf, 'pri') : '') +
       (inst.suspended ? L.postBtn(base + '/resume', 'Resume license', o.csrf, 'pri') : L.postBtn(base + '/suspend', 'Suspend license', o.csrf, 'danger', 'Suspend this agency? Their theme turns off on the next page load.')) +
       L.postBtn(base + '/verify', 'Verify with HighLevel', o.csrf) +
       (!inst.installed ? L.postBtn(base + '/mark-installed', 'Mark as installed', o.csrf) : '') + '</div></div>' +

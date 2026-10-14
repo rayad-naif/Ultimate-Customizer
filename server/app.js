@@ -19,7 +19,7 @@ function createApp(cfg, deps) {
   const sec = createSecurity(cfg.sessionSecret);
   const store = deps.store || createStore(cfg);
   const ghl = deps.ghl || createGhl(cfg, deps.fetch);
-  const lic = createLicensing(store, ghl, sec);
+  const lic = createLicensing(store, ghl, sec, { newInstallStatus: cfg.newInstallStatus });
   const bundler = createBundler(cfg);
   const views = createViews(Object.assign({ baseUrl: cfg.baseUrl }, cfg.brand));
   const ownHost = new URL(cfg.baseUrl).hostname;
@@ -250,11 +250,13 @@ function createApp(cfg, deps) {
       return res.status(401).send('Signed out');
     }
     if (req.method !== 'GET' && !csrfOk(req, s)) return res.status(403).send('Invalid CSRF token');
+    noFrame(res);
     req.s = s; req.inst = inst;
     next();
   });
 
   app.get('/app', customer, (req, res) => {
+    noFrame(res);
     html(res, views.appPage({ inst: req.inst, status: lic.statusOf(req.inst), baseUrl: cfg.baseUrl, csrf: req.s.csrf, flash: takeFlash(req, res) }));
   });
   app.post('/app/domains/add', customer, ah(async (req, res) => {
@@ -361,6 +363,10 @@ function createApp(cfg, deps) {
   adminAction('suspend', async (req, res) => {
     req.inst.suspended = true; await store.put(req.inst); await store.log(req.inst.companyId, 'suspended', 'by super admin');
     back(req, res, 'License suspended.');
+  });
+  adminAction('approve', async (req, res) => {
+    req.inst.pending = false; await store.put(req.inst); await store.log(req.inst.companyId, 'approved', 'by super admin');
+    back(req, res, 'License approved. The agency\u2019s theme is live.');
   });
   adminAction('resume', async (req, res) => {
     req.inst.suspended = false; await store.put(req.inst); await store.log(req.inst.companyId, 'resumed', 'by super admin');

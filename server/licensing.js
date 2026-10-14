@@ -28,7 +28,9 @@ const MAX_SEEN = 25;
 const EDITOR_TTL = 30 * 24 * 3600e3;
 const PAIR_TTL = 10 * 60e3;
 
-function createLicensing(store, ghl, sec) {
+function createLicensing(store, ghl, sec, opts) {
+  // 'pending' = new agencies wait for your approval in Super Admin before anything loads.
+  const newInstallStatus = (opts && opts.newInstallStatus) === 'pending' ? 'pending' : 'active';
   const newAssetKey = () => 'k_' + randomToken(18);
 
   function blank(companyId) {
@@ -39,6 +41,7 @@ function createLicensing(store, ghl, sec) {
       key: newAssetKey(),          // appears in the CSS/JS URLs
       installed: false,            // app installed in GHL (OAuth / webhook)
       suspended: false,            // switched off in the Super Admin panel
+      pending: false,              // waiting for approval (NEW_INSTALL_STATUS=pending)
       source: 'oauth',
       config: engine.sanitize({}),
       configVersion: 1,
@@ -73,10 +76,11 @@ function createLicensing(store, ghl, sec) {
   const byKey = async (key) => normalize(await store.byKey(key));
   const list = async () => (await store.list()).map(normalize);
 
-  const isLicensed = (inst) => !!(inst && inst.installed && !inst.suspended);
+  const isLicensed = (inst) => !!(inst && inst.installed && !inst.suspended && !inst.pending);
   function statusOf(inst) {
     if (!inst) return 'not_installed';
     if (inst.suspended) return 'suspended';
+    if (inst.pending) return 'pending';
     return inst.installed ? 'active' : 'uninstalled';
   }
 
@@ -97,16 +101,18 @@ function createLicensing(store, ghl, sec) {
     const isNew = !inst;
     if (!inst) inst = blank(t.companyId);
     storeTokens(inst, t);
-    inst.installed = true;
-    inst.uninstalledAt = null;
     inst.installedBy = t.userId || inst.installedBy;
     if (isNew) inst.installedAt = new Date().toISOString();
+    // In approval mode, new agencies and returning ones that had uninstalled wait for approval.
+    if (newInstallStatus === 'pending' && (isNew || !inst.installed)) inst.pending = true;
+    inst.installed = true;
+    inst.uninstalledAt = null;
     try {
       const c = await ghl.getCompany(t.access_token, t.companyId);
       if (c && c.name) inst.name = String(c.name).slice(0, 120);
     } catch (e) { /* scope missing or API down: name stays empty */ }
     await store.put(inst);
-    await store.log(inst.companyId, isNew ? 'install' : 'sign_in', 'via HighLevel OAuth');
+    await store.log(inst.companyId, isNew ? 'install' : 'sign_in', 'via HighLevel OAuth' + (isNew && inst.pending ? ' (pending approval)' : ''));
     return inst;
   }
 
@@ -115,6 +121,7 @@ function createLicensing(store, ghl, sec) {
     let inst = await get(companyId);
     if (!inst) { inst = blank(companyId); inst.source = 'manual'; }
     inst.installed = true;
+    inst.pending = false;
     if (name) inst.name = String(name).slice(0, 120);
     await store.put(inst);
     await store.log(companyId, 'manual_add', name || '');
