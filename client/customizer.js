@@ -8,19 +8,31 @@
 /* global UC */
 (function UCCustomizer() {
   'use strict';
-  const E = UC.E;
-  const R = E.R;
-  const NAV = E.NAV;
-  const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const customizerEngine = UC.E;
+  const registry = customizerEngine.R;
+  const navigationSelector = customizerEngine.NAV;
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;');
+  }
 
   /* ------------------------------------------------------------------
      1. ADMIN DETECTION
   ------------------------------------------------------------------ */
   function isAdmin() {
-    if (UC.killed || UC.company === 'mismatch') return false;
-    const u = UC.users[UC.currentEmail()];
-    const r = u && u.roles;
-    return !!(r && String(r.type).toLowerCase() === 'agency' && String(r.role).toLowerCase() === 'admin');
+    if (UC.killed || UC.company === 'mismatch') {
+      return false;
+    }
+
+    const user = UC.users[UC.currentEmail()];
+    const roles = user && user.roles;
+    return Boolean(
+      roles &&
+      String(roles.type).toLowerCase() === 'agency' &&
+      String(roles.role).toLowerCase() === 'admin'
+    );
   }
 
   /* ------------------------------------------------------------------
@@ -38,7 +50,7 @@
   }
   function applyNames() {
     const names = (UC.live && !UC.killed ? (UC.active.sidebar[currentView()] || {}).names : null) || {};
-    document.querySelectorAll(NAV + ' > a').forEach((a) => {
+    document.querySelectorAll(navigationSelector + ' > a').forEach((a) => {
       const t = a.querySelector('.nav-title');
       if (!t) return;
       if (!t.dataset.irvexOrig) t.dataset.irvexOrig = t.textContent.trim();
@@ -48,12 +60,27 @@
     });
   }
   let nameRaf = 0;
-  const nameObs = new MutationObserver(() => { if (!nameRaf) nameRaf = requestAnimationFrame(() => { nameRaf = 0; applyNames(); }); });
+  function scheduleSidebarRenameSync() {
+    if (nameRaf) {
+      return;
+    }
+
+    nameRaf = requestAnimationFrame(function runSidebarRenameSync() {
+      nameRaf = 0;
+      applyNames();
+    });
+  }
+  const nameObs = new MutationObserver(scheduleSidebarRenameSync);
   if (UC.mode !== 'setup') {
     nameObs.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     UC.onChange(applyNames);
   }
-  UC.onKill(() => { applyNames(); nameObs.disconnect(); closeUI(); removeMenuItem(); });
+  UC.onKill(() => {
+    applyNames();
+    nameObs.disconnect();
+    closeUI();
+    removeMenuItem();
+  });
 
   /* ------------------------------------------------------------------
      3. MENU ITEM
@@ -67,32 +94,49 @@
   }
   function ensureMenuItem() {
     const menu = document.querySelector('.hl_header--dropdown .dropdown-menu');
-    if (!menu || !isAdmin()) { removeMenuItem(); return; }
+    if (!menu || !isAdmin()) {
+      removeMenuItem();
+      return;
+    }
     const label = UC.mode === 'setup' ? 'Connect Ultimate Customizer' : 'Ultimate Customizer';
     const existing = document.getElementById('irvex-uc-menu-item');
-    if (existing && menu.contains(existing)) return;
+    if (existing && menu.contains(existing)) {
+      return;
+    }
     const signout = Array.from(menu.querySelectorAll('a.dropdown-item')).find((a) => /sign\s*out/i.test(a.textContent));
-    if (!signout) return;
+    if (!signout) {
+      return;
+    }
     const item = document.createElement('a');
     item.id = 'irvex-uc-menu-item';
     item.className = 'py-2 dropdown-item';
-    item.href = 'javascript:void(0);';
-    item.innerHTML = '<i class="fas fa-palette" style="margin-right:8px"></i>' + label;
+    item.href = '#';
+    const icon = document.createElement('i');
+    icon.className = 'fas fa-palette';
+    icon.style.marginRight = '8px';
+    item.appendChild(icon);
+    item.appendChild(document.createTextNode(label));
     const hr = document.createElement('hr');
     hr.className = 'dropdown-divider irvex-uc-hr';
     signout.before(item, hr);
   }
   document.addEventListener('click', (e) => {
     const t = e.target.closest && e.target.closest('#irvex-uc-menu-item');
-    if (!t) return;
+    if (!t) {
+      return;
+    }
     e.preventDefault();
-    if (UC.mode === 'setup' || !UC.editorToken()) openUI('connect'); else openUI('editor');
+    if (UC.mode === 'setup' || !UC.editorToken()) {
+      openUI('connect');
+      return;
+    }
+    openUI('editor');
   }, true);
 
   /* ------------------------------------------------------------------
      4. PANEL SHELL
   ------------------------------------------------------------------ */
-  const TABS = [['themes', 'Themes']].concat(R.GROUPS.map((g) => [g.id, g.label])).concat([['menu', 'Menu'], ['advanced', 'Advanced']]);
+  const TABS = [['themes', 'Themes']].concat(registry.GROUPS.map((g) => [g.id, g.label])).concat([['menu', 'Menu'], ['advanced', 'Advanced']]);
 
   const UI_CSS = `
 :host{all:initial}
@@ -173,11 +217,23 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
 .empty{color:#7fa3b5;text-align:center;padding:30px 0}
 `;
 
-  let host = null, shadow = null, draft = null, opened = null, tab = 'themes', query = '', dragKey = null, view = 'editor';
-  let saveTimer = 0, saving = false, pendingSave = false, connectTimer = 0;
+  let host = null;
+  let shadow = null;
+  let draft = null;
+  let opened = null;
+  let tab = 'themes';
+  let query = '';
+  let dragKey = null;
+  let view = 'editor';
+  let saveTimer = 0;
+  let saving = false;
+  let pendingSave = false;
+  let connectTimer = 0;
 
   function openUI(which) {
-    if (host || !isAdmin()) return;
+    if (host || !isAdmin()) {
+      return;
+    }
     view = which;
     host = document.createElement('div');
     host.id = 'irvex-uc-host';
@@ -187,70 +243,109 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       '<div id="main" style="display:flex;flex-direction:column;flex:1;min-height:0"></div><div class="toast" id="toast"></div></div></div>';
     document.body.appendChild(host);
     const panel = shadow.querySelector('.panel');
-    ['keydown', 'keyup', 'keypress'].forEach((ev) => panel.addEventListener(ev, (e) => e.stopPropagation()));
+    ['keydown', 'keyup', 'keypress'].forEach((eventName) => {
+      panel.addEventListener(eventName, (event) => event.stopPropagation());
+    });
     shadow.addEventListener('click', onClick);
     shadow.addEventListener('input', onInput);
     shadow.addEventListener('change', onChange);
     shadow.addEventListener('focusout', onBlur);
     makeDraggable(panel, shadow.querySelector('header'));
-    if (view === 'connect') renderConnect('start');
-    else startEditor();
+    if (view === 'connect') {
+      renderConnect('start');
+      return;
+    }
+
+    startEditor();
   }
 
   function startEditor() {
     view = 'editor';
     UC.editing = true;
-    draft = E.clone(UC.baked);
-    opened = E.clone(UC.baked);
+    draft = customizerEngine.clone(UC.baked);
+    opened = customizerEngine.clone(UC.baked);
     renderShell();
     // Pull the latest saved version in case another admin changed it.
     fetch(UC.api('/c/' + UC.license.key + '/v.json?have=0'), { credentials: 'omit' })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        if (!j || !j.config || !host || j.v <= UC.version) return;
-        UC.version = j.v; UC.baked = E.sanitize(j.config);
-        draft = E.clone(UC.baked); opened = E.clone(UC.baked);
-        UC.render(draft); render();
+        if (!j || !j.config || !host || j.v <= UC.version) {
+          return;
+        }
+
+        UC.version = j.v;
+        UC.baked = customizerEngine.sanitize(j.config);
+        draft = customizerEngine.clone(UC.baked);
+        opened = customizerEngine.clone(UC.baked);
+        UC.render(draft);
+        render();
       }).catch(() => {});
   }
 
   function closeUI() {
-    if (!host) return;
+    if (!host) {
+      return;
+    }
     clearInterval(connectTimer);
-    if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; save(); }
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = 0;
+      save();
+    }
     hideLoginMock();
-    host.remove(); host = shadow = null;
+    host.remove();
+    host = null;
+    shadow = null;
     UC.editing = false;
   }
 
   function makeDraggable(panel, handle) {
     let sx, sy, ox, oy, on = false;
     handle.addEventListener('mousedown', (e) => {
-      if (e.target.closest('button')) return;
+      if (e.target.closest('button')) {
+        return;
+      }
       const r = panel.getBoundingClientRect();
-      on = true; sx = e.clientX; sy = e.clientY; ox = r.left; oy = r.top;
-      panel.style.right = 'auto'; panel.style.bottom = 'auto';
-      panel.style.left = ox + 'px'; panel.style.top = oy + 'px'; panel.style.height = r.height + 'px';
+      on = true;
+      sx = e.clientX;
+      sy = e.clientY;
+      ox = r.left;
+      oy = r.top;
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      panel.style.left = ox + 'px';
+      panel.style.top = oy + 'px';
+      panel.style.height = r.height + 'px';
       e.preventDefault();
     });
     window.addEventListener('mousemove', (e) => {
-      if (!on) return;
+      if (!on) {
+        return;
+      }
       panel.style.left = Math.max(0, ox + e.clientX - sx) + 'px';
       panel.style.top = Math.max(0, oy + e.clientY - sy) + 'px';
     });
-    window.addEventListener('mouseup', () => { on = false; });
+    window.addEventListener('mouseup', () => {
+      on = false;
+    });
   }
 
   function toast(msg) {
     const t = shadow && shadow.getElementById('toast');
-    if (!t) return;
-    t.textContent = msg; t.classList.add('show');
+    if (!t) {
+      return;
+    }
+    t.textContent = msg;
+    t.classList.add('show');
     clearTimeout(toast.t);
     toast.t = setTimeout(() => t.classList.remove('show'), 2600);
   }
   function status(text, cls) {
     const s = shadow && shadow.getElementById('st');
-    if (s) { s.textContent = text; s.className = 'status ' + (cls || ''); }
+    if (s) {
+      s.textContent = text;
+      s.className = 'status ' + (cls || '');
+    }
   }
 
   /* ------------------------------------------------------------------
@@ -267,7 +362,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   }
   function renderConnect(stage, url) {
     const main = shadow.getElementById('main');
-    const domain = esc(location.hostname);
+    const domain = escapeHtml(location.hostname);
     if (stage === 'start') {
       main.innerHTML = '<div class="connect"><h2>Connect this CRM</h2><p>To unlock Ultimate Customizer on <b>' + domain + '</b>, confirm it with the CRM agency account that purchased the app.' +
         (UC.mode !== 'setup' ? ' This also lets this browser save theme changes.' : '') + '</p>' +
@@ -275,7 +370,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
         '<p class="note">A small window opens. Sign in if asked, then click <b>Approve</b>.</p></div>';
     } else if (stage === 'wait') {
       main.innerHTML = '<div class="connect"><h2>Waiting for approval…</h2><div class="spin"></div><p>Approve the connection in the window that opened.</p>' +
-        '<p class="note">Popup blocked? <a href="' + esc(url) + '" target="_blank" rel="noopener">Open it here</a>.</p>' +
+        '<p class="note">Popup blocked? <a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">Open it here</a>.</p>' +
         '<div class="btns" style="justify-content:center"><button class="btn sm" data-act="cancelConnect">Cancel</button></div></div>';
     } else if (stage === 'done') {
       main.innerHTML = '<div class="connect"><h2>Connected ✓</h2><p>' + domain + ' is now connected to your license.</p>' +
@@ -311,7 +406,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   function renderShell() {
     const main = shadow.getElementById('main');
     main.innerHTML = '<div class="tabs">' + TABS.map((t) => '<button class="tab" data-tab="' + t[0] + '">' + t[1] + '</button>').join('') + '</div>' +
-      '<div class="search"><input type="text" class="full" id="q" placeholder="Search all ' + R.ORDER.length + ' settings…" value="' + esc(query) + '"></div>' +
+      '<div class="search"><input type="text" class="full" id="q" placeholder="Search all ' + registry.ORDER.length + ' settings…" value="' + escapeHtml(query) + '"></div>' +
       '<div class="body" id="body"></div>' +
       '<footer><span class="note">Changes save automatically and go live for every user.</span><button class="btn sm" data-act="undoSession">Undo session</button><button class="btn sm pri" data-act="close">Done</button></footer>';
     status(UC.editorToken() ? 'All changes saved' : '', 'ok');
@@ -336,76 +431,76 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   function syncAccent() {
     const p = shadow && shadow.querySelector('.panel');
     if (!p) return;
-    const r = E.resolve(draft);
+    const r = customizerEngine.resolve(draft);
     p.style.setProperty('--accent', r.primary);
     p.style.setProperty('--gold', r.highlight);
   }
 
   /* ---------- controls ---------- */
   function control(id, showGroup) {
-    const t = R.TOKENS[id];
-    const r = E.resolve(draft);
+    const t = registry.TOKENS[id];
+    const r = customizerEngine.resolve(draft);
     const val = r[id];
     const set = Object.prototype.hasOwnProperty.call(draft.values, id);
     let input = '';
     switch (t.type) {
       case 'color':
-        input = '<input type="color" data-k="' + id + '" value="' + esc(val) + '"><input type="text" class="hex" data-hex="' + id + '" value="' + esc(val) + '" maxlength="7">';
+        input = '<input type="color" data-k="' + id + '" value="' + escapeHtml(val) + '"><input type="text" class="hex" data-hex="' + id + '" value="' + escapeHtml(val) + '" maxlength="7">';
         break;
       case 'num':
         input = '<input type="range" data-k="' + id + '" min="' + t.min + '" max="' + t.max + '" step="' + t.step + '" value="' + val + '">' +
           '<input type="number" class="num" data-k="' + id + '" min="' + t.min + '" max="' + t.max + '" step="' + t.step + '" value="' + val + '">';
         break;
       case 'select':
-        input = '<select data-k="' + id + '">' + t.options.map((o) => '<option value="' + esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
+        input = '<select data-k="' + id + '">' + t.options.map((o) => '<option value="' + escapeHtml(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + escapeHtml(o[1]) + '</option>').join('') + '</select>';
         break;
       case 'bool':
         input = '<input type="checkbox" data-k="' + id + '"' + (val ? ' checked' : '') + '>';
         break;
       case 'font':
-        input = '<input type="text" class="txt" list="uc-fonts" data-k="' + id + '" value="' + esc(set ? draft.values[id] : (t.def || '')) + '" placeholder="' + esc(t.def || 'Same as body font') + '">';
+        input = '<input type="text" class="txt" list="uc-fonts" data-k="' + id + '" value="' + escapeHtml(set ? draft.values[id] : (t.def || '')) + '" placeholder="' + escapeHtml(t.def || 'Same as body font') + '">';
         break;
       default:
-        input = '<input type="text" class="txt" data-k="' + id + '" maxlength="' + (t.type === 'url' ? 500 : (t.max || 100)) + '" value="' + esc(val || '') + '" placeholder="' + (t.type === 'url' ? 'https://…' : '') + '">';
+        input = '<input type="text" class="txt" data-k="' + id + '" maxlength="' + (t.type === 'url' ? 500 : (t.max || 100)) + '" value="' + escapeHtml(val || '') + '" placeholder="' + (t.type === 'url' ? 'https://…' : '') + '">';
     }
-    const grp = showGroup ? '<span class="grp">' + esc(R.GROUPS.find((g) => g.id === t.group).label + ' › ' + t.sub) + '</span>' : '';
-    return '<div class="ctl' + (set ? ' set' : '') + '" data-ctl="' + id + '"><div class="lbl"><b>' + esc(t.label) + '</b>' +
-      (t.hint || grp ? '<small>' + grp + (t.hint && grp ? ' · ' : '') + esc(t.hint || '') + '</small>' : '') + '</div>' +
+    const grp = showGroup ? '<span class="grp">' + escapeHtml(registry.GROUPS.find((g) => g.id === t.group).label + ' › ' + t.sub) + '</span>' : '';
+    return '<div class="ctl' + (set ? ' set' : '') + '" data-ctl="' + id + '"><div class="lbl"><b>' + escapeHtml(t.label) + '</b>' +
+      (t.hint || grp ? '<small>' + grp + (t.hint && grp ? ' · ' : '') + escapeHtml(t.hint || '') + '</small>' : '') + '</div>' +
       '<div class="in">' + input + '<button class="rs" data-reset="' + id + '" title="Reset to theme default">↺</button></div></div>';
   }
-  const fontList = () => '<datalist id="uc-fonts">' + R.FONTS.map((f) => '<option value="' + esc(f) + '">').join('') + '</datalist>';
+  const fontList = () => '<datalist id="uc-fonts">' + registry.FONTS.map((f) => '<option value="' + escapeHtml(f) + '">').join('') + '</datalist>';
 
   function renderGroup(gid) {
-    const g = R.GROUPS.find((x) => x.id === gid);
+    const g = registry.GROUPS.find((x) => x.id === gid);
     let html = gid === 'login' ? '<div class="btns"><button class="btn" data-act="loginPreview">' + (mockOpen() ? 'Hide' : 'Show') + ' login page preview</button></div>' : '';
     html += g.subs.map((sub, i) => {
-      const ids = R.ORDER.filter((id) => R.TOKENS[id].group === gid && R.TOKENS[id].sub === sub);
-      return '<details' + (i < 2 || g.subs.length <= 2 ? ' open' : '') + '><summary>' + esc(sub) + '</summary><div class="sec">' + ids.map((id) => control(id)).join('') + '</div></details>';
+      const ids = registry.ORDER.filter((id) => registry.TOKENS[id].group === gid && registry.TOKENS[id].sub === sub);
+      return '<details' + (i < 2 || g.subs.length <= 2 ? ' open' : '') + '><summary>' + escapeHtml(sub) + '</summary><div class="sec">' + ids.map((id) => control(id)).join('') + '</div></details>';
     }).join('');
     return html + fontList();
   }
 
   function renderSearch() {
     const q = query.toLowerCase();
-    const ids = R.ORDER.filter((id) => {
-      const t = R.TOKENS[id];
+    const ids = registry.ORDER.filter((id) => {
+      const t = registry.TOKENS[id];
       return (t.label + ' ' + t.sub + ' ' + (t.hint || '') + ' ' + id).toLowerCase().indexOf(q) !== -1;
     });
-    return ids.length ? ids.slice(0, 60).map((id) => control(id, true)).join('') + fontList() : '<div class="empty">No settings match “' + esc(query) + '”.</div>';
+    return ids.length ? ids.slice(0, 60).map((id) => control(id, true)).join('') + fontList() : '<div class="empty">No settings match “' + escapeHtml(query) + '”.</div>';
   }
 
   function renderThemes() {
-    return '<h4>Prebuilt themes</h4><div class="themes">' + R.THEMES.map((th) => {
-      const p = E.resolve({ values: th.p });
+    return '<h4>Prebuilt themes</h4><div class="themes">' + registry.THEMES.map((th) => {
+      const p = customizerEngine.resolve({ values: th.p });
       return '<button class="theme' + (draft.theme === th.id ? ' on' : '') + '" data-theme="' + th.id + '"><i>' +
         [p.base, p.surfaceAlt, p.secondary, p.primary, p.highlight].map((c) => '<span style="background:' + c + '"></span>').join('') +
-        '</i>' + esc(th.name) + '</button>';
+        '</i>' + escapeHtml(th.name) + '</button>';
     }).join('') + '</div><p class="note">Each theme sets the palette, every section color and its own look: sidebar style, fonts, glow, roundness, animations and login touches. Your login layout, background image, texts, menu and custom CSS are kept. Fine-tune anything afterwards in the other tabs.</p>';
   }
 
   function sidebarItems() {
     const sb = draft.sidebar[currentView()];
-    const items = Array.from(document.querySelectorAll(NAV + ' > a')).filter((a) => keyOf(a)).map((a, i) => {
+    const items = Array.from(document.querySelectorAll(navigationSelector + ' > a')).filter((a) => keyOf(a)).map((a, i) => {
       const t = a.querySelector('.nav-title');
       return { key: keyOf(a), orig: (t && (t.dataset.irvexOrig || t.textContent.trim())) || keyOf(a), idx: i };
     });
@@ -422,77 +517,121 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     else {
       html += items.map((it) => {
         const hidden = sb.hidden.indexOf(it.key) !== -1;
-        return '<div class="row' + (hidden ? ' hid' : '') + '" data-key="' + esc(it.key) + '"><span class="grip" title="Drag to reorder">&#8942;&#8942;</span>' +
-          '<input type="checkbox" data-vis="' + esc(it.key) + '" title="Show / hide"' + (hidden ? '' : ' checked') + '>' +
-          '<div class="names"><input type="text" class="name" data-nm="' + esc(it.key) + '" value="' + esc(sb.names[it.key] || '') + '" placeholder="' + esc(it.orig) + '"><small>Original: ' + esc(it.orig) + '</small></div>' +
-          '<button class="mv" data-up="' + esc(it.key) + '">&#9650;</button><button class="mv" data-down="' + esc(it.key) + '">&#9660;</button></div>';
+        return '<div class="row' + (hidden ? ' hid' : '') + '" data-key="' + escapeHtml(it.key) + '"><span class="grip" title="Drag to reorder">&#8942;&#8942;</span>' +
+          '<input type="checkbox" data-vis="' + escapeHtml(it.key) + '" title="Show / hide"' + (hidden ? '' : ' checked') + '>' +
+          '<div class="names"><input type="text" class="name" data-nm="' + escapeHtml(it.key) + '" value="' + escapeHtml(sb.names[it.key] || '') + '" placeholder="' + escapeHtml(it.orig) + '"><small>Original: ' + escapeHtml(it.orig) + '</small></div>' +
+          '<button class="mv" data-up="' + escapeHtml(it.key) + '">&#9650;</button><button class="mv" data-down="' + escapeHtml(it.key) + '">&#9660;</button></div>';
       }).join('') + '<div class="btns"><button class="btn sm" data-act="resetSidebar">Reset this menu</button></div>';
     }
-    return html + '<h4>Always hide (CSS selectors)</h4><textarea id="hidesel" spellcheck="false" placeholder="#sb_app-media&#10;#sb_memberships">' + esc(draft.hideSelectors.join('\n')) + '</textarea>' +
+    return html + '<h4>Always hide (CSS selectors)</h4><textarea id="hidesel" spellcheck="false" placeholder="#sb_app-media&#10;#sb_memberships">' + escapeHtml(draft.hideSelectors.join('\n')) + '</textarea>' +
       '<p class="note">One selector per line; applied when you click outside the box. You are editing the <b>' + (v === 'agency' ? 'Agency' : 'Sub-account') + '</b> menu — switch views and reopen to edit the other. Empty name = original name.</p>';
   }
 
   function renderAdvanced() {
     return '<h4>Theme sections</h4><p class="note">Switch off any part of the theme to keep the CRM’s original look there.</p>' +
-      R.SECTIONS.map((s) => '<div class="ctl"><div class="lbl"><b>' + esc(s[1]) + '</b></div><div class="in"><input type="checkbox" data-sec="' + s[0] + '"' + (draft.sections[s[0]] === false ? '' : ' checked') + '></div></div>').join('') +
-      '<h4>Custom CSS</h4><textarea id="customcss" spellcheck="false" placeholder="/* added after the theme */">' + esc(draft.customCss) + '</textarea>' +
+      registry.SECTIONS.map((s) => '<div class="ctl"><div class="lbl"><b>' + escapeHtml(s[1]) + '</b></div><div class="in"><input type="checkbox" data-sec="' + s[0] + '"' + (draft.sections[s[0]] === false ? '' : ' checked') + '></div></div>').join('') +
+      '<h4>Custom CSS</h4><textarea id="customcss" spellcheck="false" placeholder="/* added after the theme */">' + escapeHtml(draft.customCss) + '</textarea>' +
       '<p class="note">Applied when you click outside the box.</p>' +
       '<h4>Backup / restore</h4><div class="btns"><button class="btn sm" data-act="copyJson">Copy settings JSON</button><button class="btn sm" data-act="pasteJson">Restore from JSON…</button>' +
       '<button class="btn sm" data-act="resetAll">Reset everything</button></div>' +
       '<h4>This browser</h4><div class="btns"><button class="btn sm" data-act="forget">Disconnect this browser</button></div>' +
-      '<p class="note">Licensed to ' + esc(UC.license.name || UC.license.companyId) + '. <a href="' + esc(UC.api('/docs')) + '" target="_blank" rel="noopener">Documentation</a> · <a href="' + esc(UC.api('/')) + '" target="_blank" rel="noopener">Support</a></p>';
+      '<p class="note">Licensed to ' + escapeHtml(UC.license.name || UC.license.companyId) + '. <a href="' + escapeHtml(UC.api('/docs')) + '" target="_blank" rel="noopener">Documentation</a> · <a href="' + escapeHtml(UC.api('/')) + '" target="_blank" rel="noopener">Support</a></p>';
   }
 
   /* ---------- applying changes ---------- */
   let paintRaf = 0;
   function changed(rerender) {
     draft.theme = draft.theme || 'custom';
-    if (!paintRaf) paintRaf = requestAnimationFrame(() => { paintRaf = 0; UC.render(draft).catch(() => status('Preview failed', 'err')); });
-    if (rerender) render(); else syncAccent();
+    if (!paintRaf) {
+      paintRaf = requestAnimationFrame(() => {
+        paintRaf = 0;
+        UC.render(draft).catch(() => status('Preview failed', 'err'));
+      });
+    }
+
+    if (rerender) {
+      render();
+    } else {
+      syncAccent();
+    }
+
     scheduleSave();
   }
   function setValue(id, value) {
-    const t = R.TOKENS[id];
-    if (value === '' && t.def === '') delete draft.values[id];
-    else draft.values[id] = value;
-    draft = E.sanitize(draft);
+    const t = registry.TOKENS[id];
+    if (value === '' && t.def === '') {
+      delete draft.values[id];
+    } else {
+      draft.values[id] = value;
+    }
+    draft = customizerEngine.sanitize(draft);
     const ctl = shadow.querySelector('[data-ctl="' + id + '"]');
-    if (ctl) ctl.classList.add('set');
+    if (ctl) {
+      ctl.classList.add('set');
+    }
   }
 
   function scheduleSave() {
     status('Unsaved…');
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { saveTimer = 0; save(); }, 700);
+    saveTimer = setTimeout(() => {
+      saveTimer = 0;
+      save();
+    }, 700);
   }
   function save() {
-    if (saving) { pendingSave = true; return; }
-    if (!UC.editorToken()) { status('Not connected', 'err'); return; }
-    saving = true; status('Saving…');
-    UC.save(draft).then(() => { status('All changes saved', 'ok'); })
+    if (saving) {
+      pendingSave = true;
+      return;
+    }
+    if (!UC.editorToken()) {
+      status('Not connected', 'err');
+      return;
+    }
+
+    saving = true;
+    status('Saving…');
+    UC.save(draft).then(() => {
+      status('All changes saved', 'ok');
+    })
       .catch((e) => {
         status('Not saved', 'err');
         if (e.status === 401) {
           UC.editorToken('');
-          if (host) { view = 'connect'; renderConnect('start'); toast('This browser needs to reconnect'); }
+          if (host) {
+            view = 'connect';
+            renderConnect('start');
+            toast('This browser needs to reconnect');
+          }
+        } else {
+          toast(e.message);
         }
-        else toast(e.message);
       })
-      .then(() => { saving = false; if (pendingSave) { pendingSave = false; save(); } });
+      .then(() => {
+        saving = false;
+        if (pendingSave) {
+          pendingSave = false;
+          save();
+        }
+      });
   }
 
   /* ---------- login page preview ---------- */
   const MOCK_ID = 'uc-login-mock';
-  const mockOpen = () => !!document.getElementById(MOCK_ID);
+  function mockOpen() {
+    return Boolean(document.getElementById(MOCK_ID));
+  }
   function showLoginMock() {
-    if (mockOpen()) return;
+    if (mockOpen()) {
+      return;
+    }
     const logoEl = document.querySelector('img.agency-logo');
     const logo = logoEl && logoEl.src ? logoEl.src : 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="220" height="80"><text x="50%" y="55%" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="700" fill="#ffffff">YOUR LOGO</text></svg>');
     const f = 'display:block;width:100%;box-sizing:border-box;margin:0 0 16px;font-size:14px';
     const m = document.createElement('div');
     m.id = MOCK_ID;
     m.style.cssText = 'position:fixed;inset:0;z-index:2147482000;overflow:hidden';
-    m.innerHTML = '<div class="hl_login"><div class="hl_login--header"><div class="container-fluid"><img alt="Logo" src="' + esc(logo) + '"></div></div>' +
+    m.innerHTML = '<div class="hl_login"><div class="hl_login--header"><div class="container-fluid"><img alt="Logo" src="' + escapeHtml(logo) + '"></div></div>' +
       '<div class="hl_login--body"><div class="container-fluid"><div class="card"><div class="card-body">' +
       '<div class="login-card-heading"><h2>Sign into your account</h2></div>' +
       '<label class="hl-text-input-label" style="display:block;margin-bottom:6px">Email</label><input class="hl-text-input" style="' + f + '" placeholder="Your email address">' +
@@ -504,17 +643,26 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     m.addEventListener('submit', (e) => e.preventDefault());
     m.addEventListener('click', (e) => e.preventDefault());
     document.body.appendChild(m);
-    if (UC.refreshEffects) UC.refreshEffects();
+    if (UC.refreshEffects) {
+      UC.refreshEffects();
+    }
   }
   function hideLoginMock() {
     const m = document.getElementById(MOCK_ID);
-    if (m) m.remove();
+    if (m) {
+      m.remove();
+    }
   }
 
   /* ---------- sidebar editing ---------- */
-  function commitOrder(keys) { draft.sidebar[currentView()].order = keys; changed(true); }
+  function commitOrder(keys) {
+    draft.sidebar[currentView()].order = keys;
+    changed(true);
+  }
   function moveBefore(from, to) {
-    if (!from || from === to) return;
+    if (!from || from === to) {
+      return;
+    }
     const keys = sidebarItems().map((i) => i.key).filter((k) => k !== from);
     const at = keys.indexOf(to);
     keys.splice(at < 0 ? keys.length : at, 0, from);
@@ -522,32 +670,62 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   }
   function step(key, dir) {
     const keys = sidebarItems().map((i) => i.key);
-    const i = keys.indexOf(key), j = i + dir;
-    if (i < 0 || j < 0 || j >= keys.length) return;
+    const i = keys.indexOf(key);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= keys.length) {
+      return;
+    }
     keys.splice(j, 0, keys.splice(i, 1)[0]);
     commitOrder(keys);
   }
   function bindDnD(body) {
     body.querySelectorAll('.row').forEach((r) => {
-      r.querySelector('.grip').addEventListener('mousedown', () => { r.draggable = true; });
-      r.addEventListener('dragstart', (e) => { dragKey = r.dataset.key; r.classList.add('drag'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragKey); } catch (x) { /* ignore */ } });
-      r.addEventListener('dragend', () => { r.draggable = false; r.classList.remove('drag'); });
+      r.querySelector('.grip').addEventListener('mousedown', () => {
+        r.draggable = true;
+      });
+      r.addEventListener('dragstart', (e) => {
+        dragKey = r.dataset.key;
+        r.classList.add('drag');
+        e.dataTransfer.effectAllowed = 'move';
+        try {
+          e.dataTransfer.setData('text/plain', dragKey);
+        } catch (x) {
+          /* ignore */
+        }
+      });
+      r.addEventListener('dragend', () => {
+        r.draggable = false;
+        r.classList.remove('drag');
+      });
       r.addEventListener('dragover', (e) => e.preventDefault());
-      r.addEventListener('drop', (e) => { e.preventDefault(); moveBefore(dragKey, r.dataset.key); });
+      r.addEventListener('drop', (e) => {
+        e.preventDefault();
+        moveBefore(dragKey, r.dataset.key);
+      });
     });
   }
 
   /* ---------- events ---------- */
   function copyText(txt, ok) {
     const done = () => toast(ok);
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, () => fallbackCopy(txt, done));
-    else fallbackCopy(txt, done);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(done, () => fallbackCopy(txt, done));
+    } else {
+      fallbackCopy(txt, done);
+    }
   }
   function fallbackCopy(txt, done) {
     const ta = document.createElement('textarea');
-    ta.value = txt; ta.style.cssText = 'position:fixed;opacity:0';
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); done(); } catch (e) { /* ignore */ }
+    ta.value = txt;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      done();
+    } catch (e) {
+      /* ignore */
+    }
     ta.remove();
   }
 
@@ -555,67 +733,154 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     const t = e.target;
     const tabBtn = t.closest('[data-tab]');
     if (tabBtn) {
-      tab = tabBtn.dataset.tab; query = '';
-      const q = shadow.getElementById('q'); if (q) q.value = '';
-      if (tab !== 'login') hideLoginMock();
-      render(); return;
+      tab = tabBtn.dataset.tab;
+      query = '';
+      const q = shadow.getElementById('q');
+      if (q) {
+        q.value = '';
+      }
+      if (tab !== 'login') {
+        hideLoginMock();
+      }
+      render();
+      return;
     }
     const th = t.closest('[data-theme]');
-    if (th) { draft = E.applyTheme(draft, th.dataset.theme); changed(true); toast('Theme applied'); return; }
+    if (th) {
+      draft = customizerEngine.applyTheme(draft, th.dataset.theme);
+      changed(true);
+      toast('Theme applied');
+      return;
+    }
     const rs = t.closest('[data-reset]');
-    if (rs) { delete draft.values[rs.dataset.reset]; changed(true); return; }
-    const up = t.closest('[data-up]'); if (up) { step(up.dataset.up, -1); return; }
-    const dn = t.closest('[data-down]'); if (dn) { step(dn.dataset.down, 1); return; }
+    if (rs) {
+      delete draft.values[rs.dataset.reset];
+      changed(true);
+      return;
+    }
+    const up = t.closest('[data-up]');
+    if (up) {
+      step(up.dataset.up, -1);
+      return;
+    }
+    const dn = t.closest('[data-down]');
+    if (dn) {
+      step(dn.dataset.down, 1);
+      return;
+    }
     const a = t.closest('[data-act]');
-    if (!a) return;
+    if (!a) {
+      return;
+    }
     switch (a.dataset.act) {
-      case 'close': closeUI(); break;
-      case 'connect': startConnect(); break;
-      case 'cancelConnect': clearInterval(connectTimer); renderConnect('start'); break;
-      case 'loginPreview': if (mockOpen()) hideLoginMock(); else showLoginMock(); render(); break;
+      case 'close':
+        closeUI();
+        break;
+      case 'connect':
+        startConnect();
+        break;
+      case 'cancelConnect':
+        clearInterval(connectTimer);
+        renderConnect('start');
+        break;
+      case 'loginPreview':
+        if (mockOpen()) {
+          hideLoginMock();
+        } else {
+          showLoginMock();
+        }
+        render();
+        break;
       case 'undoSession':
-        if (!confirm('Undo every change made since you opened the customizer?')) return;
-        draft = E.clone(opened); changed(true); break;
+        if (!confirm('Undo every change made since you opened the customizer?')) {
+          return;
+        }
+        draft = customizerEngine.clone(opened);
+        changed(true);
+        break;
       case 'resetAll':
-        if (!confirm('Reset all settings to the default IRVEX theme?')) return;
-        draft = E.clone(E.DEFAULTS); changed(true); break;
-      case 'resetSidebar': draft.sidebar[currentView()] = { order: [], names: {}, hidden: [] }; changed(true); break;
-      case 'copyJson': copyText(JSON.stringify(draft, null, 2), 'Settings copied'); break;
+        if (!confirm('Reset all settings to the default IRVEX theme?')) {
+          return;
+        }
+        draft = customizerEngine.clone(customizerEngine.DEFAULTS);
+        changed(true);
+        break;
+      case 'resetSidebar':
+        draft.sidebar[currentView()] = { order: [], names: {}, hidden: [] };
+        changed(true);
+        break;
+      case 'copyJson':
+        copyText(JSON.stringify(draft, null, 2), 'Settings copied');
+        break;
       case 'pasteJson': {
         const txt = prompt('Paste settings JSON');
-        if (!txt) return;
-        try { draft = E.sanitize(JSON.parse(txt)); changed(true); toast('Settings restored'); } catch (x) { toast('That is not valid JSON'); }
+        if (!txt) {
+          return;
+        }
+        try {
+          draft = customizerEngine.sanitize(JSON.parse(txt));
+          changed(true);
+          toast('Settings restored');
+        } catch (x) {
+          toast('That is not valid JSON');
+        }
         break;
       }
       case 'forget':
-        if (!confirm('Disconnect this browser? You will need to approve it again to edit.')) return;
-        UC.editorToken(''); closeUI(); break;
+        if (!confirm('Disconnect this browser? You will need to approve it again to edit.')) {
+          return;
+        }
+        UC.editorToken('');
+        closeUI();
+        break;
     }
   }
 
   function onInput(e) {
     const t = e.target;
-    if (t.id === 'q') { query = t.value.trim(); render(); const q = shadow.getElementById('q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); return; }
+    if (t.id === 'q') {
+      query = t.value.trim();
+      render();
+      const q = shadow.getElementById('q');
+      q.focus();
+      q.setSelectionRange(q.value.length, q.value.length);
+      return;
+    }
     const id = t.dataset.k;
     if (id) {
-      const tok = R.TOKENS[id];
+      const tok = registry.TOKENS[id];
       if (tok.type === 'color') {
         setValue(id, t.value);
-        const hx = shadow.querySelector('[data-hex="' + id + '"]'); if (hx) hx.value = t.value;
+        const hx = shadow.querySelector('[data-hex="' + id + '"]');
+        if (hx) {
+          hx.value = t.value;
+        }
         changed(false);
       } else if (tok.type === 'num') {
-        if (t.value === '') return;
+        if (t.value === '') {
+          return;
+        }
         setValue(id, Number(t.value));
-        t.closest('.in').querySelectorAll('[data-k]').forEach((x) => { if (x !== t) x.value = t.value; });
+        t.closest('.in').querySelectorAll('[data-k]').forEach((x) => {
+          if (x !== t) {
+            x.value = t.value;
+          }
+        });
         changed(false);
       } else if (tok.type === 'text') {
-        setValue(id, t.value); changed(false);
+        setValue(id, t.value);
+        changed(false);
       }
       return;
     }
     if (t.dataset.nm) {
-      const sb = draft.sidebar[currentView()], v = t.value.trim();
-      if (v) sb.names[t.dataset.nm] = v.slice(0, 60); else delete sb.names[t.dataset.nm];
+      const sb = draft.sidebar[currentView()];
+      const v = t.value.trim();
+      if (v) {
+        sb.names[t.dataset.nm] = v.slice(0, 60);
+      } else {
+        delete sb.names[t.dataset.nm];
+      }
       changed(false);
     }
   }
@@ -623,31 +888,55 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   function onChange(e) {
     const t = e.target;
     if (t.dataset.hex) {
-      let v = t.value.trim(); if (v[0] !== '#') v = '#' + v;
-      if (!E.isHex(v)) { t.value = E.resolve(draft)[t.dataset.hex]; return; }
-      setValue(t.dataset.hex, v.toLowerCase()); changed(true); return;
+      let v = t.value.trim();
+      if (v[0] !== '#') {
+        v = '#' + v;
+      }
+      if (!customizerEngine.isHex(v)) {
+        t.value = customizerEngine.resolve(draft)[t.dataset.hex];
+        return;
+      }
+      setValue(t.dataset.hex, v.toLowerCase());
+      changed(true);
+      return;
     }
     const id = t.dataset.k;
     if (id) {
-      const tok = R.TOKENS[id];
-      if (tok.type === 'select') { setValue(id, t.value); changed(true); }
-      else if (tok.type === 'bool') { setValue(id, t.checked); changed(true); }
-      else if (tok.type === 'url' || tok.type === 'font') {
+      const tok = registry.TOKENS[id];
+      if (tok.type === 'select') {
+        setValue(id, t.value);
+        changed(true);
+      } else if (tok.type === 'bool') {
+        setValue(id, t.checked);
+        changed(true);
+      } else if (tok.type === 'url' || tok.type === 'font') {
         const before = JSON.stringify(draft.values[id]);
         setValue(id, t.value.trim());
-        if (JSON.stringify(draft.values[id]) === before && t.value.trim()) toast(tok.type === 'url' ? 'Use a full https:// link' : 'Letters, numbers and spaces only');
+        if (JSON.stringify(draft.values[id]) === before && t.value.trim()) {
+          toast(tok.type === 'url' ? 'Use a full https:// link' : 'Letters, numbers and spaces only');
+        }
         changed(true);
       }
       return;
     }
     if (t.dataset.sec) {
-      if (t.checked) delete draft.sections[t.dataset.sec]; else draft.sections[t.dataset.sec] = false;
-      changed(false); return;
+      if (t.checked) {
+        delete draft.sections[t.dataset.sec];
+      } else {
+        draft.sections[t.dataset.sec] = false;
+      }
+      changed(false);
+      return;
     }
     if (t.dataset.vis) {
-      const sb = draft.sidebar[currentView()], i = sb.hidden.indexOf(t.dataset.vis);
-      if (t.checked && i >= 0) sb.hidden.splice(i, 1);
-      if (!t.checked && i < 0) sb.hidden.push(t.dataset.vis);
+      const sb = draft.sidebar[currentView()];
+      const i = sb.hidden.indexOf(t.dataset.vis);
+      if (t.checked && i >= 0) {
+        sb.hidden.splice(i, 1);
+      }
+      if (!t.checked && i < 0) {
+        sb.hidden.push(t.dataset.vis);
+      }
       changed(true);
     }
   }
@@ -656,31 +945,41 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     const t = e.target;
     if (t.id === 'hidesel') {
       draft.hideSelectors = t.value.split('\n').map((s) => s.trim()).filter(Boolean);
-      draft = E.sanitize(draft); changed(false);
+      draft = customizerEngine.sanitize(draft);
+      changed(false);
     } else if (t.id === 'customcss') {
-      if (t.value === draft.customCss) return;
-      draft.customCss = t.value; draft = E.sanitize(draft); changed(false);
+      if (t.value === draft.customCss) {
+        return;
+      }
+      draft.customCss = t.value;
+      draft = customizerEngine.sanitize(draft);
+      changed(false);
     }
   }
 
   /* ------------------------------------------------------------------
      7. BOOT
   ------------------------------------------------------------------ */
-  if (UC.mode !== 'setup') applyNames();
+  if (UC.mode !== 'setup') {
+    applyNames();
+  }
   const iv = setInterval(() => {
-    if (UC.killed) { clearInterval(iv); return; }
-    try { ensureMenuItem(); } catch (e) { /* never break the CRM */ }
+    if (UC.killed) {
+      clearInterval(iv);
+      return;
+    }
+
+    try {
+      ensureMenuItem();
+    } catch (e) {
+      /* never break the CRM */
+    }
   }, 600);
 
   window.IRVEX_UC = {
-    open: () => openUI(UC.mode === 'setup' || !UC.editorToken() ? 'connect' : 'editor'),
-    debug: function () {
-      const email = UC.currentEmail();
-      console.table({
-        mode: UC.mode, live: UC.live, company: UC.company, licensedCompany: UC.license.companyId,
-        email, user: JSON.stringify(UC.users[email] || null), isAdmin: isAdmin(),
-        editorConnected: !!UC.editorToken(), version: UC.version, view: currentView(), killed: UC.killed
-      });
+    open: function openCustomizer() {
+      const initialView = UC.mode === 'setup' || !UC.editorToken() ? 'connect' : 'editor';
+      openUI(initialView);
     }
   };
 })();
