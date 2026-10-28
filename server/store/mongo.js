@@ -11,7 +11,15 @@
 const { MongoClient } = require('mongodb');
 
 const EVENT_TTL_DAYS = 180;
+// in the index list:
+d.collection('installs').createIndex({ loginEmail: 1 }, { unique: true, partialFilterExpression: { loginEmail: { $type: 'string' } } }),
 
+// next to byKey:
+async byLoginEmail(email) { return parse(await (await installs()).findOne({ loginEmail: email })); },
+
+// in put(): build `const doc = { ...same fields as before... };` then
+if (inst.login && inst.login.email) doc.loginEmail = inst.login.email;
+await (await installs()).replaceOne({ _id: inst.companyId }, doc, { upsert: true });
 function createMongoStore(uri, dbName) {
   const cacheKey = '__ucMongo:' + uri + ':' + dbName;
 
