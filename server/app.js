@@ -275,18 +275,6 @@ function createApp(cfg, deps) {
     html(res, views.message('Install failed', why.text), why.status);
   }
 }));
-    clearCookie(res, STATE_COOKIE);
-    try {
-      const inst = await lic.installFromOAuth(code);
-      setCookie(res, CUST_COOKIE, sec.sign({ companyId: inst.companyId, csrf: randomToken(18), exp: Date.now() + CUST_TTL }), { maxAge: CUST_TTL });
-      res.redirect(next);
-    } catch (e) {
-      const why = oauthProblem(e);
-      console.error('[oauth] ' + why.log);
-      try { await store.log(null, 'oauth_error', why.log); } catch (x) { /* ignore */ }
-      html(res, views.message('Install failed', why.text), why.status);
-    }
-  }));
 
   /* ---------------- app page inside the CRM (sidebar) ----------------
      CRM opens the app's custom page in an iframe, where our cookies are
@@ -315,7 +303,8 @@ function createApp(cfg, deps) {
     }
     const inst = await lic.get(u.companyId);
     if (!inst) return fail(404, 'This agency (' + u.companyId + ') has not installed Ultimate Customizer yet.', 'no install record for ' + u.companyId);
-    res.json({ token: sec.sign({ t: 'emb', companyId: inst.companyId, csrf: randomToken(18), user: String(u.email || u.userId || '').slice(0, 120), exp: Date.now() + EMBED_TTL }) });
+    // setup: no email + password chosen yet, so the sidebar opens the setup page first.
+    res.json({ setup: !inst.login, token: sec.sign({ t: 'emb', companyId: inst.companyId, csrf: randomToken(18), user: String(u.email || u.userId || '').slice(0, 120), exp: Date.now() + EMBED_TTL }) });
   }));
 
   /* ---------------- customer app page ---------------- */

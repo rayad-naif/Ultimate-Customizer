@@ -95,7 +95,7 @@ function fail(t){done=true;msg.textContent=t;fb.style.display='';}
 if(window.top===window.self){location.replace('/app');return;}
 window.addEventListener('message',function(e){var d=e.data;if(done||!d||d.message!=='REQUEST_USER_DATA_RESPONSE')return;done=true;
 fetch('/api/sso',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:d.payload})})
-.then(function(r){return r.json()}).then(function(j){if(j.token)location.replace('/app?t='+encodeURIComponent(j.token));else fail(j.error||'Could not sign you in.')})
+.then(function(r){return r.json()}).then(function(j){if(j.token)location.replace((j.setup?'/app/setup':'/app')+'?t='+encodeURIComponent(j.token));else fail(j.error||'Could not sign you in.')})
 .catch(function(){fail('Could not reach the server.')})});
 window.parent.postMessage({message:'REQUEST_USER_DATA'},'*');
 setTimeout(function(){if(!done)fail('The CRM did not answer the sign-in request (no REQUEST_USER_DATA_RESPONSE). Make sure this page is opened from the app\u2019s sidebar link, or open the app in a new tab.')},8000);})();` : '';

@@ -65,8 +65,18 @@ async function boot(extra) {
 const cookiesOf = (res) => (res.headers.getSetCookie ? res.headers.getSetCookie() : []).map((c) => c.split(';')[0]).filter((c) => !c.endsWith('=')).join('; ');
 const from = (origin) => ({ Referer: origin + '/v2/location/abc', Origin: origin });
 
+const LOGIN_EMAIL = 'boss@irvex.com';
+const LOGIN_PASSWORD = 'correct horse battery';
+const form = (o) => ({ method: 'POST', redirect: 'manual', body: new URLSearchParams(o.body), headers: o.cookie ? { cookie: o.cookie } : {} });
+
+// Install through the CRM, choose an email + password on the setup page, land on the app page.
 async function installAndSignIn(s) {
-  const r = await fetch(s.url + '/oauth/callback?code=abc', { redirect: 'manual' });
+  let r = await fetch(s.url + '/oauth/callback?code=abc', { redirect: 'manual' });
+  assert.strictEqual(r.headers.get('location'), '/app/setup');
+  const setup = cookiesOf(r);
+  const setupPage = await (await fetch(s.url + '/app/setup', { headers: { cookie: setup } })).text();
+  const setupCsrf = setupPage.match(/name="_csrf" value="([^"]+)"/)[1];
+  r = await fetch(s.url + '/app/setup', form({ cookie: setup, body: { _csrf: setupCsrf, email: LOGIN_EMAIL, password: LOGIN_PASSWORD, confirm: LOGIN_PASSWORD } }));
   assert.strictEqual(r.headers.get('location'), '/app');
   const cust = cookiesOf(r);
   const page = await (await fetch(s.url + '/app', { headers: { cookie: cust } })).text();
@@ -108,7 +118,7 @@ test('install, connect, edit live, lock to agency, suspend, uninstall', async (t
 
   // App page is private
   r = await fetch(s.url + '/app');
-  assert.match(await r.text(), /Sign in with your CRM/);
+  assert.match(await r.text(), /name="password"/);
 
   const a = await installAndSignIn(s);
   assert.match(a.page, /Irvex Agency/);
@@ -226,14 +236,19 @@ test('public pages, sign-in redirect and manual licenses', async (t) => {
     assert.match(body, /help@example\.com/, p + ' shows the support email');
     assert.match(body, /href="\/privacy"/);
   }
-  // Connect link without a session -> sign in, then come back to the connect page
-  let r = await fetch(s.url + '/connect?key=k_abcdefghijkl&pair=abcdefghijklmnopqrstuvwxyz');
+  // Connect link without a session -> email + password form, then come back to the connect page
+  const connectUrl = '/connect?key=k_abcdefghijkl&pair=abcdefghijklmnopqrstuvwxyz';
+  let r = await fetch(s.url + connectUrl);
   const signIn = await r.text();
-  const start = signIn.match(/href="(\/oauth\/start\?next=[^"]+)"/)[1].replace(/&amp;/g, '&');
-  r = await fetch(s.url + start, { redirect: 'manual' });
-  const state = new URL(r.headers.get('location')).searchParams.get('state');
-  r = await fetch(s.url + '/oauth/callback?code=abc&state=' + state, { headers: { cookie: cookiesOf(r) }, redirect: 'manual' });
-  assert.strictEqual(r.headers.get('location'), '/connect?key=k_abcdefghijkl&pair=abcdefghijklmnopqrstuvwxyz');
+  assert.match(signIn, /name="password"/);
+  assert.ok(!signIn.includes('/oauth/start?next='), 'sign-in no longer goes through the CRM OAuth popup');
+  const next = signIn.match(/name="next" value="([^"]+)"/)[1].replace(/&amp;/g, '&');
+  assert.strictEqual(next, connectUrl);
+  await installAndSignIn(s);
+  r = await fetch(s.url + '/app/login', form({ body: { email: LOGIN_EMAIL, password: 'wrong password!', next } }));
+  assert.strictEqual(r.status, 401);
+  r = await fetch(s.url + '/app/login', form({ body: { email: LOGIN_EMAIL.toUpperCase(), password: LOGIN_PASSWORD, next } }));
+  assert.strictEqual(r.headers.get('location'), connectUrl);
 
   r = await fetch(s.url + '/admin/login', { method: 'POST', body: new URLSearchParams({ password: 'admin-password-123' }), redirect: 'manual' });
   const adm = cookiesOf(r);
@@ -265,7 +280,7 @@ test('agencies that have not bought get nothing', async (t) => {
   assert.strictEqual(r.status, 401);
   // Forged session cookies are rejected
   r = await fetch(s.url + '/app', { headers: { cookie: 'uc_cust=eyJjb21wYW55SWQiOiJBZ2VuY3lDbzEyMzQ1NiJ9.forged' } });
-  assert.match(await r.text(), /Sign in with your CRM/);
+  assert.match(await r.text(), /name="password"/);
 });
 
 test('approval mode: new installs stay off until approved', async (t) => {
@@ -296,6 +311,87 @@ test('approval mode: new installs stay off until approved', async (t) => {
   assert.strictEqual((await (await fetch(s.url + '/api/check?companyId=' + COMPANY)).json()).status, 'pending');
 });
 
+test('email + password: asked after install, after logout and in new sessions', async (t) => {
+  const s = await boot();
+  t.after(s.close);
+
+  // First open after the CRM install: only the setup page, nothing else
+  let r = await fetch(s.url + '/oauth/callback?code=abc', { redirect: 'manual' });
+  const setup = cookiesOf(r);
+  assert.strictEqual(r.headers.get('location'), '/app/setup');
+  r = await fetch(s.url + '/app', { headers: { cookie: setup }, redirect: 'manual' });
+  assert.strictEqual(r.headers.get('location'), '/app/setup', 'the install session cannot open the app page yet');
+  const setupPage = await (await fetch(s.url + '/app/setup', { headers: { cookie: setup } })).text();
+  assert.match(setupPage, /Choose your sign-in/);
+  const csrf = setupPage.match(/name="_csrf" value="([^"]+)"/)[1];
+  const bad = (body) => fetch(s.url + '/app/setup', form({ cookie: setup, body: Object.assign({ _csrf: csrf }, body) }));
+  assert.strictEqual((await bad({ email: 'nope', password: LOGIN_PASSWORD, confirm: LOGIN_PASSWORD })).status, 400);
+  assert.strictEqual((await bad({ email: LOGIN_EMAIL, password: 'short', confirm: 'short' })).status, 400);
+  assert.match(await (await bad({ email: LOGIN_EMAIL, password: LOGIN_PASSWORD, confirm: 'different one!' })).text(), /do not match/);
+  r = await fetch(s.url + '/app/setup', form({ cookie: setup, body: { email: LOGIN_EMAIL, password: LOGIN_PASSWORD, confirm: LOGIN_PASSWORD } }));
+  assert.strictEqual(r.status, 403, 'setup needs the CSRF token');
+
+  // Same email cannot be used by another agency
+  await s.app.locals.store.put({ companyId: 'OtherAgency01', key: 'k_other', login: { email: LOGIN_EMAIL, hash: 'x', epoch: 1 } });
+  assert.match(await (await bad({ email: LOGIN_EMAIL, password: LOGIN_PASSWORD, confirm: LOGIN_PASSWORD })).text(), /already used by another agency/);
+  await s.app.locals.store.remove('OtherAgency01');
+
+  // Choose email + password: signed in, the password is stored hashed
+  r = await fetch(s.url + '/app/setup', form({ cookie: setup, body: { _csrf: csrf, email: LOGIN_EMAIL, password: LOGIN_PASSWORD, confirm: LOGIN_PASSWORD } }));
+  assert.strictEqual(r.headers.get('location'), '/app');
+  const cust = cookiesOf(r);
+  assert.ok(!/max-age/i.test(r.headers.getSetCookie().join(';')), 'no "keep me signed in": browser-session cookie');
+  assert.match(await (await fetch(s.url + '/app', { headers: { cookie: cust } })).text(), /Your code/);
+  const stored = await s.app.locals.store.get(COMPANY);
+  assert.strictEqual(stored.login.email, LOGIN_EMAIL);
+  assert.match(stored.login.hash, /^scrypt\$/);
+  assert.ok(!JSON.stringify(stored).includes(LOGIN_PASSWORD));
+
+  // Sign out -> the login form; the app page asks for email + password again
+  r = await fetch(s.url + '/logout', { method: 'POST', headers: { cookie: cust }, redirect: 'manual' });
+  assert.strictEqual(r.headers.get('location'), '/app/login');
+  assert.match(await (await fetch(s.url + '/app')).text(), /name="password"/);
+
+  // Wrong password / unknown email look the same; right one signs in
+  for (const body of [{ email: LOGIN_EMAIL, password: 'not the password' }, { email: 'who@nowhere.com', password: LOGIN_PASSWORD }]) {
+    r = await fetch(s.url + '/app/login', form({ body }));
+    assert.strictEqual(r.status, 401);
+    assert.match(await r.text(), /Email or password is incorrect/);
+  }
+  r = await fetch(s.url + '/app/login', form({ body: { email: LOGIN_EMAIL, password: LOGIN_PASSWORD } }));
+  assert.strictEqual(r.headers.get('location'), '/app');
+  assert.ok(!/max-age/i.test(r.headers.getSetCookie().join(';')));
+  r = await fetch(s.url + '/app/login', form({ body: { email: LOGIN_EMAIL, password: LOGIN_PASSWORD, remember: '1' } }));
+  assert.match(r.headers.getSetCookie().join(';'), /Max-Age=604800/);
+  const cust2 = cookiesOf(r);
+  const page2 = await (await fetch(s.url + '/app', { headers: { cookie: cust2 } })).text();
+  assert.match(page2, /Change email or password/);
+  const csrf2 = page2.match(/name="_csrf" value="([^"]+)"/)[1];
+
+  // Reinstalling does not sign anyone in: it goes to the login form
+  r = await fetch(s.url + '/oauth/callback?code=abc', { redirect: 'manual' });
+  assert.strictEqual(r.headers.get('location'), '/app/login');
+  assert.strictEqual(cookiesOf(r), '');
+
+  // Changing the password needs the current one and signs every other browser out
+  const NEW = 'a brand new passphrase';
+  r = await fetch(s.url + '/app/setup', form({ cookie: cust2, body: { _csrf: csrf2, email: LOGIN_EMAIL, current: 'wrong wrong wrong', password: NEW, confirm: NEW } }));
+  assert.strictEqual(r.status, 400);
+  assert.match(await r.text(), /current password is not correct/);
+  r = await fetch(s.url + '/app/setup', form({ cookie: cust2, body: { _csrf: csrf2, email: LOGIN_EMAIL, current: LOGIN_PASSWORD, password: NEW, confirm: NEW } }));
+  assert.strictEqual(r.headers.get('location'), '/app');
+  assert.match(await (await fetch(s.url + '/app', { headers: { cookie: cust } })).text(), /name="password"/, 'the older session is signed out');
+  r = await fetch(s.url + '/app/login', form({ body: { email: LOGIN_EMAIL, password: LOGIN_PASSWORD } }));
+  assert.strictEqual(r.status, 401);
+  r = await fetch(s.url + '/app/login', form({ body: { email: LOGIN_EMAIL, password: NEW } }));
+  assert.strictEqual(r.headers.get('location'), '/app');
+
+  // Brute force is rate limited per email
+  let last;
+  for (let i = 0; i < 10; i++) last = await fetch(s.url + '/app/login', form({ body: { email: 'victim@irvex.com', password: 'guess number ' + i } }));
+  assert.strictEqual(last.status, 429);
+});
+
 test('sidebar page inside the CRM signs in with SSO', async (t) => {
   const crypto = require('crypto');
   const KEY = 'sso-shared-secret';
@@ -322,8 +418,13 @@ test('sidebar page inside the CRM signs in with SSO', async (t) => {
   assert.strictEqual((await sso({ companyId: COMPANY, type: 'location', role: 'admin' })).status, 403);
   assert.strictEqual((await sso({ companyId: 'NeverInstalled1', type: 'agency', role: 'admin' })).status, 404);
   r = await sso({ companyId: COMPANY, type: 'agency', role: 'admin', email: 'boss@irvex.com' });
-  const { token } = await r.json();
+  const sso1 = await r.json();
+  const { token } = sso1;
   assert.ok(token);
+  assert.strictEqual(sso1.setup, false, 'login already chosen');
+  // An agency without an email + password yet is sent to the setup page by the sidebar
+  await s.app.locals.store.put({ companyId: 'NoLoginAgency1', key: 'k_nologin1', installed: true, login: null });
+  assert.strictEqual((await (await sso({ companyId: 'NoLoginAgency1', type: 'agency', role: 'admin' })).json()).setup, true);
 
   // App page works with the token, framed, without cookies
   r = await fetch(s.url + '/app?t=' + encodeURIComponent(token));
@@ -360,4 +461,17 @@ test('sidebar page inside the CRM signs in with SSO', async (t) => {
   assert.match(await r.text(), /location\.replace\('\/embed'\)/);
   r = await fetch(s.url + '/app', { headers: { cookie: signedIn.cust } });
   assert.strictEqual(r.headers.get('x-frame-options'), 'DENY');
+
+  // The sidebar (CRM-verified admin) can reset the email + password without the old one
+  assert.match(page, /Change email or password/);
+  r = await fetch(s.url + '/app/setup?t=' + encodeURIComponent(token));
+  const resetPage = await r.text();
+  assert.strictEqual(r.status, 200);
+  assert.match(r.headers.get('content-security-policy'), /frame-ancestors https:/);
+  assert.ok(!resetPage.includes('name="current"'));
+  r = await fetch(s.url + '/app/setup', form({ body: { _csrf: csrf, t: token, email: 'owner@irvex.com', password: 'sidebar reset pass', confirm: 'sidebar reset pass' } }));
+  assert.match(r.headers.get('location'), /^\/app\?t=/);
+  assert.match(await (await fetch(s.url + '/app', { headers: { cookie: signedIn.cust } })).text(), /name="password"/, 'old browser sessions are signed out');
+  r = await fetch(s.url + '/app/login', form({ body: { email: 'owner@irvex.com', password: 'sidebar reset pass' } }));
+  assert.strictEqual(r.headers.get('location'), '/app');
 });

@@ -84,7 +84,7 @@ function rateLimiter(limit, windowMs) {
   };
 }
 
-module.exports = { createSecurity, randomToken, sha256, safeEqual, rateLimiter };
+module.exports = { createSecurity, randomToken, sha256, safeEqual, rateLimiter, hashPassword, verifyPassword };
 
 /* CRM custom-page SSO: the payload is CryptoJS.AES.encrypt(JSON, sharedSecret),
    i.e. OpenSSL "Salted__" format, key+iv from EVP_BytesToKey(MD5), AES-256-CBC. */
@@ -105,4 +105,4 @@ function decryptGhlSso(payload, key) {
   } catch (e) { return null; }
 }
 
-module.exports = { createSecurity, randomToken, sha256, safeEqual, rateLimiter, hashPassword, verifyPassword };
+module.exports.decryptGhlSso = decryptGhlSso;

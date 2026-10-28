@@ -16,7 +16,6 @@
                        ("blocked attempts") in the Super Admin panel.
    ===================================================================== */
 const engine = require('../shared/theme-engine');
-const { randomToken } = require('./security');
 
 const COMPANY_RE = /^[A-Za-z0-9_-]{6,64}$/;
 const HOST_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
@@ -66,8 +65,8 @@ function createLicensing(store, ghl, sec, opts) {
 
   // Older records may miss newer fields.
   function normalize(inst) {
-    inst.login = inst.login || null;
     if (!inst) return inst;
+    inst.login = inst.login || null;
     inst.boundHosts = inst.boundHosts || inst.allowedHosts || [];
     inst.seenHosts = inst.seenHosts || {};
     inst.blockedHosts = inst.blockedHosts || {};
@@ -308,6 +307,7 @@ async function checkLogin(email, password) {
   return inst && ok ? inst : null;
 }
   return {
+    setLogin, checkLogin, cleanEmail,
     COMPANY_RE, SHARED_HOSTS, get, byKey, list, isLicensed, statusOf, installFromOAuth, addManual, verify, markUninstalled,
     rotateAssetKey, saveConfig, cleanHost, validHost, isShared, bindHost, unbindHost, noteRequest, modeFor,
     validPair, approvePairing, claimPairing, checkEditorToken, revokeEditors

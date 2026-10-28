@@ -11,15 +11,6 @@
 const { MongoClient } = require('mongodb');
 
 const EVENT_TTL_DAYS = 180;
-// in the index list:
-d.collection('installs').createIndex({ loginEmail: 1 }, { unique: true, partialFilterExpression: { loginEmail: { $type: 'string' } } }),
-
-// next to byKey:
-async byLoginEmail(email) { return parse(await (await installs()).findOne({ loginEmail: email })); },
-
-// in put(): build `const doc = { ...same fields as before... };` then
-if (inst.login && inst.login.email) doc.loginEmail = inst.login.email;
-await (await installs()).replaceOne({ _id: inst.companyId }, doc, { upsert: true });
 function createMongoStore(uri, dbName) {
   const cacheKey = '__ucMongo:' + uri + ':' + dbName;
 
@@ -33,6 +24,7 @@ function createMongoStore(uri, dbName) {
         await Promise.all([
           d.collection('installs').createIndex({ key: 1 }, { unique: true }),
           d.collection('installs').createIndex({ installedAt: -1 }),
+          d.collection('installs').createIndex({ loginEmail: 1 }, { unique: true, partialFilterExpression: { loginEmail: { $type: 'string' } } }),
           d.collection('events').createIndex({ companyId: 1, at: -1 }),
           d.collection('events').createIndex({ at: 1 }, { expireAfterSeconds: EVENT_TTL_DAYS * 86400 }),
           d.collection('pairings').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
@@ -51,13 +43,14 @@ function createMongoStore(uri, dbName) {
     kind: 'mongo',
     async get(companyId) { return parse(await (await installs()).findOne({ _id: companyId })); },
     async byKey(key) { return parse(await (await installs()).findOne({ key })); },
+    async byLoginEmail(email) { return parse(await (await installs()).findOne({ loginEmail: email })); },
     async list() {
       const docs = await (await installs()).find({}, { projection: { data: 1 } }).sort({ installedAt: -1 }).toArray();
       return docs.map(parse);
     },
     async put(inst) {
       inst.updatedAt = new Date().toISOString();
-      await (await installs()).replaceOne({ _id: inst.companyId }, {
+      const doc = {
         _id: inst.companyId,
         key: inst.key,
         name: inst.name || '',
@@ -66,7 +59,10 @@ function createMongoStore(uri, dbName) {
         installedAt: inst.installedAt,
         updatedAt: inst.updatedAt,
         data: JSON.stringify(inst)
-      }, { upsert: true });
+      };
+      // Only set when present: the unique index ignores agencies without a login.
+      if (inst.login && inst.login.email) doc.loginEmail = inst.login.email;
+      await (await installs()).replaceOne({ _id: inst.companyId }, doc, { upsert: true });
       return inst;
     },
     async remove(companyId) { await (await installs()).deleteOne({ _id: companyId }); },
