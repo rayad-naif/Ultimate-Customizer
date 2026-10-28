@@ -175,13 +175,19 @@ f.addEventListener('submit',function(e){e.preventDefault();run()});if(document.g
     return L.layout('Terms of Service', body, { active: '/terms' });
   }
 
-  function signIn(next) {
-    const href = '/oauth/start' + (next ? '?next=' + encodeURIComponent(next) : '');
-    return L.layout('Sign in', '<div class="card" style="max-width:520px;margin:40px auto;text-align:center"><h1>Sign in with your CRM</h1>' +
-      '<p class="sub">This page is only available to the CRM agency that installed ' + esc(brand.name) + '. Sign in with an agency admin account to continue.</p>' +
-      '<a class="btn pri" href="' + esc(href) + '">Sign in with your CRM</a>' +
-      '<p class="note" style="margin-top:18px">Don’t have the app yet? <a href="' + esc(installHref) + '">Install it</a>.</p></div>', { framedToEmbed: true });
-  }
+  function signIn(o) {
+  o = o || {};
+  const err = o.error ? '<div class="flash err">' + esc(o.error) + '</div>' : '';
+  return L.layout('Sign in', '<div class="card" style="max-width:460px;margin:40px auto"><h1 style="text-align:center">Sign in</h1>' +
+    '<p class="sub" style="text-align:center">Use the email and password you chose when you installed ' + esc(brand.name) + '.</p>' + err +
+    '<form method="post" action="/app/login" autocomplete="on">' + (o.next ? '<input type="hidden" name="next" value="' + esc(o.next) + '">' : '') +
+    '<label for="email">Email</label><input type="email" id="email" name="email" value="' + esc(o.email || '') + '" autocomplete="username" required>' +
+    '<label for="password" style="margin-top:12px;display:block">Password</label><input type="password" id="password" name="password" autocomplete="current-password" required>' +
+    '<label style="display:flex;gap:8px;align-items:center;margin:14px 0"><input type="checkbox" name="remember" value="1" style="width:auto"> Keep me signed in for 7 days</label>' +
+    '<button class="btn pri" style="width:100%">Sign in</button></form>' +
+    '<p class="note" style="margin-top:18px">Forgot it, or never set one? Open ' + esc(brand.name) + ' from your CRM sidebar and choose <b>Set email &amp; password</b>. ' +
+    'Don’t have the app yet? <a href="' + esc(installHref) + '">Install it</a>.</p></div>', { framedToEmbed: true });
+}
 
   return { home, docs, privacy, terms, signIn };
 }
