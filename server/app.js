@@ -6,6 +6,8 @@ const { createGhl } = require('./ghl');
 const { createLicensing } = require('./licensing');
 const { createBundler } = require('./bundle');
 const { createViews } = require('./views');
+const SESSION_TTL = 12 * 3600e3;
+const SETUP_TTL = 30 * 60e3;
 
 const ADMIN_COOKIE = 'uc_admin';
 const CUST_COOKIE = 'uc_cust';
@@ -92,7 +94,7 @@ function createApp(cfg, deps) {
     if (!r) return '';
     try { return new URL(r).hostname.toLowerCase(); } catch (e) { return ''; }
   }
-  const safeNext = (n) => (typeof n === 'string' && /^\/(app|connect)(\?[\w=&%.~-]*)?$/.test(n) && n.length <= 400 ? n : null);
+  const safeNext = (n) => (typeof n === 'string' && /^\/(app(\/setup)?|connect)(\?[\w=&%.~-]*)?$/.test(n) && n.length <= 400 ? n : null);
   const cors = (res) => res.set({
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
