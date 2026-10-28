@@ -57,6 +57,10 @@ function createApp(cfg, deps) {
     res.setHeader('Set-Cookie', (Array.isArray(prev) ? prev : prev ? [prev] : []).concat(c));
   }
   const clearCookie = (res, name) => setCookie(res, name, '', { maxAge: 0 });
+  function startSession(res, inst, remember) {
+  const ttl = remember ? CUST_TTL : SESSION_TTL;
+  setCookie(res, CUST_COOKIE, sec.sign({ companyId: inst.companyId, csrf: randomToken(18), stage: 'full', ep: inst.login ? inst.login.epoch : 0, exp: Date.now() + ttl }), remember ? { maxAge: ttl } : {});
+}
   function session(req, name) {
     const s = sec.unsign(parseCookies(req)[name]);
     return s && s.csrf ? s : null;
