@@ -25,7 +25,8 @@ const { MongoClient } = require('mongodb');
     ['installs', { installedAt: -1 }, { name: 'installedAt' }],
     ['events', { companyId: 1, at: -1 }, { name: 'company_at' }],
     ['events', { at: 1 }, { expireAfterSeconds: 180 * 86400, name: 'ttl_180d' }],
-    ['pairings', { expiresAt: 1 }, { expireAfterSeconds: 0, name: 'ttl_expiry' }]
+    ['pairings', { expiresAt: 1 }, { expireAfterSeconds: 0, name: 'ttl_expiry' }],
+    ['installs', { loginEmail: 1 }, { unique: true, name: 'loginEmail_unique', partialFilterExpression: { loginEmail: { $type: 'string' } } }],
   ];
   for (const [coll, keys, opts] of indexes) {
     await db.collection(coll).createIndex(keys, opts);
