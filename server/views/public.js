@@ -74,7 +74,7 @@ f.addEventListener('submit',function(e){e.preventDefault();run()});if(document.g
       '<h2 id="install">1. Install the app</h2><ol><li>Sign in to your CRM as an <b>agency admin</b> (agency owners and admins can install agency apps).</li>' +
       '<li>Open the CRM App Marketplace, find <b>' + esc(brand.name) + '</b> and click <b>Install</b>.</li>' +
       '<li>Approve the requested access. You are taken to your <b>app page</b>, which shows your two snippets.</li></ol>' +
-      '<p>You can always return to the app page at <a href="/app">' + esc(brand.baseUrl) + '/app</a>. It only opens after you sign in with your CRM.</p>' +
+      '<p>You can always return to the app page at <a href="/app">' + esc(brand.baseUrl) + '/app</a>. It asks for the email and password you chose right after installing.</p>' +
 
       '<h2 id="snippets">2. Add the two snippets</h2><p>In your CRM go to <b>Agency Settings &rarr; Company</b> and scroll to the white-label section:</p>' +
       '<ul><li><b>Custom CSS</b>: paste the <code>@import url("&hellip;/theme.css");</code> line. If you already have custom CSS, put this line at the very top.</li>' +

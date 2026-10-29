@@ -88,7 +88,7 @@ function createAppViews(L, brand) {
     const open = '<a class="btn pri" href="/app" target="_blank" rel="noopener">Open Ultimate Customizer</a>';
     const body = '<div class="card" style="max-width:560px;margin:30px auto;text-align:center"><h1>' + esc(brand.name) + '</h1>' +
       '<p class="sub" id="msg">' + (o.ssoEnabled ? 'Signing you in\u2026' : 'Open your app page in a new tab to get your code and manage domains.') + '</p>' +
-      '<div id="fallback"' + (o.ssoEnabled ? ' style="display:none"' : '') + '>' + open + '<p class="note" style="margin-top:14px">You may be asked to sign in with your CRM.</p></div></div>';
+      '<div id="fallback"' + (o.ssoEnabled ? ' style="display:none"' : '') + '>' + open + '<p class="note" style="margin-top:14px">You will be asked for the email and password you chose after installing.</p></div></div>';
     const script = o.ssoEnabled ? `
 (function(){var done=false,msg=document.getElementById('msg'),fb=document.getElementById('fallback');
 function fail(t){done=true;msg.textContent=t;fb.style.display='';}
