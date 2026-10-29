@@ -6,6 +6,8 @@ const { createGhl } = require('./ghl');
 const { createLicensing } = require('./licensing');
 const { createBundler } = require('./bundle');
 const { createViews } = require('./views');
+const SESSION_TTL = 12 * 3600e3;
+const SETUP_TTL = 30 * 60e3;
 
 const ADMIN_COOKIE = 'uc_admin';
 const CUST_COOKIE = 'uc_cust';
@@ -55,6 +57,10 @@ function createApp(cfg, deps) {
     res.setHeader('Set-Cookie', (Array.isArray(prev) ? prev : prev ? [prev] : []).concat(c));
   }
   const clearCookie = (res, name) => setCookie(res, name, '', { maxAge: 0 });
+  function startSession(res, inst, remember) {
+  const ttl = remember ? CUST_TTL : SESSION_TTL;
+  setCookie(res, CUST_COOKIE, sec.sign({ companyId: inst.companyId, csrf: randomToken(18), stage: 'full', ep: inst.login ? inst.login.epoch : 0, exp: Date.now() + ttl }), remember ? { maxAge: ttl } : {});
+}
   function session(req, name) {
     const s = sec.unsign(parseCookies(req)[name]);
     return s && s.csrf ? s : null;
@@ -92,7 +98,7 @@ function createApp(cfg, deps) {
     if (!r) return '';
     try { return new URL(r).hostname.toLowerCase(); } catch (e) { return ''; }
   }
-  const safeNext = (n) => (typeof n === 'string' && /^\/(app|connect)(\?[\w=&%.~-]*)?$/.test(n) && n.length <= 400 ? n : null);
+  const safeNext = (n) => (typeof n === 'string' && /^\/(app(\/setup)?|connect)(\?[\w=&%.~-]*)?$/.test(n) && n.length <= 400 ? n : null);
   const cors = (res) => res.set({
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
@@ -238,27 +244,37 @@ function createApp(cfg, deps) {
   });
 
   app.get('/oauth/callback', ah(async (req, res) => {
-    const code = typeof req.query.code === 'string' ? req.query.code : '';
-    if (!code) return html(res, views.message('Install failed', req.query.error_description || req.query.error || 'No authorization code was returned by the CRM.'), 400);
-    let next = '/app';
-    // Marketplace-initiated installs carry no state; ones we started must match.
-    if (req.query.state) {
-      const st = sec.unsign(parseCookies(req)[STATE_COOKIE]);
-      if (!st || !safeEqual(String(req.query.state), st.state)) return html(res, views.message('Sign-in failed', 'The sign-in link expired. Please try again.'), 400);
-      next = safeNext(st.next) || '/app';
+  const code = typeof req.query.code === 'string' ? req.query.code : '';
+  if (!code) return html(res, views.message('Install failed', req.query.error_description || req.query.error || 'No authorization code was returned by the CRM.'), 400);
+  let next = '/app';
+  // Marketplace-initiated installs carry no state; ones we started must match.
+  if (req.query.state) {
+    const st = sec.unsign(parseCookies(req)[STATE_COOKIE]);
+    if (!st || !safeEqual(String(req.query.state), st.state)) return html(res, views.message('Sign-in failed', 'The sign-in link expired. Please try again.'), 400);
+    next = safeNext(st.next) || '/app';
+  }
+  clearCookie(res, STATE_COOKIE);
+  try {
+    const inst = await lic.installFromOAuth(code);
+
+    // ---- NEW: replaces the old setCookie(CUST_COOKIE...) + res.redirect(next) ----
+    // First install (no email/password yet): short "setup" session, go choose them.
+    if (!inst.login || next === '/app/setup') {
+      setCookie(res, CUST_COOKIE, sec.sign({ companyId: inst.companyId, csrf: randomToken(18), stage: 'setup', exp: Date.now() + SETUP_TTL }), { maxAge: SETUP_TTL });
+      return res.redirect('/app/setup');
     }
-    clearCookie(res, STATE_COOKIE);
-    try {
-      const inst = await lic.installFromOAuth(code);
-      setCookie(res, CUST_COOKIE, sec.sign({ companyId: inst.companyId, csrf: randomToken(18), exp: Date.now() + CUST_TTL }), { maxAge: CUST_TTL });
-      res.redirect(next);
-    } catch (e) {
-      const why = oauthProblem(e);
-      console.error('[oauth] ' + why.log);
-      try { await store.log(null, 'oauth_error', why.log); } catch (x) { /* ignore */ }
-      html(res, views.message('Install failed', why.text), why.status);
-    }
-  }));
+    // Already has a login: reinstalling does not sign anyone in.
+    clearCookie(res, CUST_COOKIE);
+    res.redirect('/app/login' + (next !== '/app' ? '?next=' + encodeURIComponent(next) : ''));
+    // ---- end NEW ----
+
+  } catch (e) {
+    const why = oauthProblem(e);
+    console.error('[oauth] ' + why.log);
+    try { await store.log(null, 'oauth_error', why.log); } catch (x) { /* ignore */ }
+    html(res, views.message('Install failed', why.text), why.status);
+  }
+}));
 
   /* ---------------- app page inside the CRM (sidebar) ----------------
      CRM opens the app's custom page in an iframe, where our cookies are
@@ -287,31 +303,38 @@ function createApp(cfg, deps) {
     }
     const inst = await lic.get(u.companyId);
     if (!inst) return fail(404, 'This agency (' + u.companyId + ') has not installed Ultimate Customizer yet.', 'no install record for ' + u.companyId);
-    res.json({ token: sec.sign({ t: 'emb', companyId: inst.companyId, csrf: randomToken(18), user: String(u.email || u.userId || '').slice(0, 120), exp: Date.now() + EMBED_TTL }) });
+    // setup: no email + password chosen yet, so the sidebar opens the setup page first.
+    res.json({ setup: !inst.login, token: sec.sign({ t: 'emb', companyId: inst.companyId, csrf: randomToken(18), user: String(u.email || u.userId || '').slice(0, 120), exp: Date.now() + EMBED_TTL }) });
   }));
 
   /* ---------------- customer app page ---------------- */
-  const customer = ah(async (req, res, next) => {
-    // Signed in inside the CRM's iframe (token) or directly (cookie).
-    const tok = (req.query && typeof req.query.t === 'string' && req.query.t) || (req.body && typeof req.body.t === 'string' && req.body.t) || '';
-    const et = tok ? sec.unsign(tok) : null;
-    // Inside a frame the cookie is never used (on a same-site CRM domain it would
-    // still be sent, and the cookie page refuses framing): frames always sign in via SSO.
-    const s = et && et.t === 'emb' && et.csrf ? et : (framed(req) ? null : session(req, CUST_COOKIE));
-    if (s === et && et) { res.locals.embed = tok; allowFrame(res); } else noFrame(res);
-    const inst = s && await lic.get(s.companyId);
-    if (!inst) {
-      // Opened inside the CRM without a (valid) token: sign in through SSO.
-      if (req.method === 'GET' && framed(req)) return embedPage(res);
-      // The sign-in page has no actions, so it may be framed; inside a frame it switches to SSO itself.
-      if (req.method === 'GET') allowFrame(res);
-      if (req.method === 'GET') return html(res, tok ? views.message('Session expired', 'Close and reopen Ultimate Customizer from the CRM sidebar.') : views.signIn(safeNext(req.originalUrl)));
-      return res.status(401).send('Signed out');
+  const customerAuth = (allowSetup) => ah(async (req, res, next) => {
+  const tok = (req.query && typeof req.query.t === 'string' && req.query.t) || (req.body && typeof req.body.t === 'string' && req.body.t) || '';
+  const et = tok ? sec.unsign(tok) : null;
+  const embedSess = et && et.t === 'emb' && et.csrf ? et : null;
+  const s = embedSess || (framed(req) ? null : session(req, CUST_COOKIE));
+  if (embedSess) { res.locals.embed = tok; allowFrame(res); } else noFrame(res);
+  let inst = s && await lic.get(s.companyId);
+  if (inst && !embedSess) {
+    const full = s.stage === 'full' && inst.login && (s.ep || 0) === inst.login.epoch;
+    if (s.stage === 'setup' && allowSetup) req.setupStage = true;
+    else if (!full) {
+      if (s.stage === 'setup' && req.method === 'GET') return res.redirect('/app/setup');
+      inst = null;
     }
-    if (req.method !== 'GET' && !csrfOk(req, s)) return res.status(403).send('Invalid CSRF token');
-    req.s = s; req.inst = inst;
-    next();
-  });
+  }
+  if (!inst) {
+    if (req.method === 'GET' && framed(req)) return embedPage(res);
+    if (req.method === 'GET') allowFrame(res);
+    if (req.method === 'GET') return html(res, tok ? views.message('Session expired', 'Close and reopen Ultimate Customizer from the CRM sidebar.') : views.signIn({ next: safeNext(req.originalUrl) }));
+    return res.status(401).send('Signed out');
+  }
+  if (req.method !== 'GET' && !csrfOk(req, s)) return res.status(403).send('Invalid CSRF token');
+  req.s = s; req.inst = inst;
+  next();
+});
+const customer = customerAuth(false);
+const customerOrSetup = customerAuth(true);
   const appHome = (res) => '/app' + (res.locals.embed ? '?t=' + encodeURIComponent(res.locals.embed) : '');
 
   app.get('/app', customer, (req, res) => {
@@ -336,8 +359,52 @@ function createApp(cfg, deps) {
     flash(res, { type: 'ok', msg: 'All editors signed out. Browsers must reconnect to edit.' });
     res.redirect(appHome(res));
   }));
-  app.post('/logout', (req, res) => { clearCookie(res, CUST_COOKIE); res.redirect('/'); });
+app.post('/logout', (req, res) => { clearCookie(res, CUST_COOKIE); res.redirect('/app/login'); });
 
+app.get('/app/login', (req, res) => {
+  noFrame(res);
+  const s = session(req, CUST_COOKIE);
+  if (s && s.stage === 'full') return res.redirect(safeNext(req.query.next) || '/app');
+  html(res, views.signIn({ next: safeNext(req.query.next) }));
+});
+app.post('/app/login', ah(async (req, res) => {
+  noFrame(res);
+  const next = safeNext(req.body.next);
+  const email = lic.cleanEmail(req.body.email);
+  const again = (status, error) => html(res, views.signIn({ next, email, error }), status);
+  if (!limitLogin('login:' + clientIp(req)) || !limitLogin('login-email:' + email)) return again(429, 'Too many attempts. Try again in 15 minutes.');
+  const inst = await lic.checkLogin(email, req.body.password);
+  if (!inst) {
+    try { await store.log(null, 'login_failed', ''); } catch (e) { /* ignore */ }
+    return again(401, 'Email or password is incorrect.');
+  }
+  startSession(res, inst, !!req.body.remember);
+  try { await store.log(inst.companyId, 'sign_in', 'email + password'); } catch (e) { /* ignore */ }
+  res.redirect(next || '/app');
+}));
+
+app.get('/app/setup', customerOrSetup, (req, res) => {
+  html(res, views.setupPage({ inst: req.inst, csrf: req.s.csrf, embedToken: res.locals.embed || '', needCurrent: false, setup: !!req.setupStage }));
+});
+app.post('/app/setup', customerOrSetup, ah(async (req, res) => {
+  const b = req.body || {};
+  const embed = res.locals.embed || '';
+  const needCurrent = !embed && !req.setupStage && !!req.inst.login;
+  const page = (error) => html(res, views.setupPage({ inst: req.inst, csrf: req.s.csrf, embedToken: embed, needCurrent, setup: !!req.setupStage, email: lic.cleanEmail(b.email), error }), 400);
+  if (typeof b.password !== 'string' || b.password !== b.confirm) return page('The two passwords do not match.');
+  if (needCurrent) {
+    if (!limitLogin('login:' + clientIp(req))) return page('Too many attempts. Try again in 15 minutes.');
+    if (!(await lic.checkLogin(req.inst.login.email, b.current))) return page('Your current password is not correct.');
+  }
+  try { await lic.setLogin(req.inst, b.email, b.password, embed ? 'via CRM sidebar' : req.setupStage ? 'after install' : 'changed'); }
+  catch (e) { return page(e.message); }
+  if (embed) {
+    flash(res, { type: 'ok', msg: 'Saved. Use ' + req.inst.login.email + ' and your password to open the app outside your CRM.' });
+    return res.redirect(appHome(res));
+  }
+  startSession(res, req.inst, !!b.remember);
+  res.redirect('/app');
+}));
   /* ---------------- connect a CRM domain (popup) ---------------- */
   function connectCheck(req) {
     const key = String((req.method === 'GET' ? req.query.key : req.body.key) || '');

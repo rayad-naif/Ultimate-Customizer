@@ -10,7 +10,21 @@ function safeEqual(a, b) {
   if (x.length !== y.length) { crypto.timingSafeEqual(x, x); return false; }
   return crypto.timingSafeEqual(x, y);
 }
-
+const scrypt = (pw, salt) => new Promise((resolve, reject) => {
+  crypto.scrypt(String(pw), salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (e, k) => (e ? reject(e) : resolve(k)));
+});
+async function hashPassword(pw) {
+  const salt = crypto.randomBytes(16);
+  return 'scrypt$' + b64u(salt) + '$' + b64u(await scrypt(pw, salt));
+}
+const DUMMY_HASH_PROMISE = hashPassword('uc-dummy-password');
+async function verifyPassword(pw, stored) {
+  const real = typeof stored === 'string' && stored.startsWith('scrypt$') && stored.split('$').length === 3;
+  const parts = (real ? stored : await DUMMY_HASH_PROMISE).split('$');
+  const want = Buffer.from(parts[2], 'base64url');
+  const got = await scrypt(pw, Buffer.from(parts[1], 'base64url'));
+  return crypto.timingSafeEqual(want, got) && real;
+}
 function createSecurity(secret) {
   const macKey = crypto.createHash('sha256').update('uc-mac:' + secret).digest();
   const encKey = crypto.createHash('sha256').update('uc-enc:' + secret).digest();
@@ -70,7 +84,7 @@ function rateLimiter(limit, windowMs) {
   };
 }
 
-module.exports = { createSecurity, randomToken, sha256, safeEqual, rateLimiter };
+module.exports = { createSecurity, randomToken, sha256, safeEqual, rateLimiter, hashPassword, verifyPassword };
 
 /* CRM custom-page SSO: the payload is CryptoJS.AES.encrypt(JSON, sharedSecret),
    i.e. OpenSSL "Salted__" format, key+iv from EVP_BytesToKey(MD5), AES-256-CBC. */

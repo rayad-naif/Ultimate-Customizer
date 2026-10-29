@@ -16,6 +16,16 @@ A HighLevel Marketplace app (Target User: **Agency**) that lets an agency restyl
 | OAuth redirect URL (put in the GHL app) | `/oauth/callback` |
 | Webhook URL (put in the GHL app) | `/webhooks/ghl` |
 
+## Signing in to the app page (/app)
+
+The CRM OAuth popup is **only used to install**. Opening the app page afterwards uses an email and password, so it never goes back through the CRM authorize screen (which refuses paid apps that are already installed).
+
+- **First open after install:** the OAuth callback sends the agency admin to `/app/setup` to choose an email and password (10+ characters, stored as a salted scrypt hash). Nothing else is reachable until that is saved.
+- **Every new session:** `/app` shows the email + password form. "Keep me signed in for 7 days" sets a 7-day cookie; without it the cookie ends when the browser closes (and the session expires after 12 hours).
+- **Sign out:** returns to the login form.
+- **Change or reset the password:** open the app in the CRM sidebar (SSO signs the admin in) and use **Set / Change email & password** on the app page. Changing the password signs out every other browser.
+- Login attempts are rate limited per IP and per email. Existing MongoDB deployments: run `npm run db:init` once to add the unique `loginEmail` index.
+
 ## How it works
 
 1. An agency admin installs the app. OAuth only accepts **Company** (agency) tokens, and lands them on `/app`.

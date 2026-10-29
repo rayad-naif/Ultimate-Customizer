@@ -34,6 +34,7 @@ function createFileStore(dataDir) {
     kind: 'file',
     async get(companyId) { return copy(db.installs[companyId]); },
     async byKey(key) { return copy(all().find((i) => i.key === key)); },
+    async byLoginEmail(email) { return copy(all().find((i) => i.login && i.login.email === email)); },
     async list() { return copy(all()).sort((a, b) => String(b.installedAt).localeCompare(String(a.installedAt))); },
     async put(inst) {
       inst.updatedAt = new Date().toISOString();

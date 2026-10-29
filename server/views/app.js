@@ -33,13 +33,37 @@ function createAppViews(L, brand) {
       '<div class="scroll"><table>' + (hosts || '<tr><td class="note">No domains connected yet.</td></tr>') + '</table></div>' +
       '<form method="post" action="/app/domains/add" class="row" style="margin-top:12px">' + L.csrfField(o.csrf) + T +
       '<input type="text" name="host" placeholder="app.youragency.com" style="max-width:320px" required><button class="btn sm">Add domain</button></form></div>';
-
+    if (inst.login) {
+  body += '<div class="card"><h2>Sign-in</h2><p class="note">Opening this app outside your CRM needs <b>' + esc(inst.login.email) + '</b> and your password.</p>' +
+    '<a class="btn sm" href="/app/setup' + (o.embedToken ? '?t=' + encodeURIComponent(o.embedToken) : '') + '">Change email or password</a></div>';
+} else {
+  body += '<div class="card"><h2>Set your email &amp; password</h2><p class="note">You will use these to open this app outside your CRM, on other devices or after signing out. Inside the CRM sidebar you stay signed in.</p>' +
+    '<form method="post" action="/app/setup">' + L.csrfField(o.csrf) + T +
+    '<label for="su-email">Email</label><input type="email" id="su-email" name="email" autocomplete="username" required>' +
+    '<label for="su-pw" style="margin-top:12px;display:block">Password (10+ characters)</label><input type="password" id="su-pw" name="password" autocomplete="new-password" minlength="10" required>' +
+    '<label for="su-pw2" style="margin-top:12px;display:block">Repeat password</label><input type="password" id="su-pw2" name="confirm" autocomplete="new-password" minlength="10" required>' +
+    '<button class="btn pri" style="margin-top:14px">Save</button></form></div>';
+}
     body += '<div class="grid"><div class="card"><h2>Design your CRM</h2><ol class="steps"><li>Open your CRM on a connected domain.</li><li>Profile menu &rarr; <b>Ultimate Customizer</b>.</li><li>Pick a theme and fine-tune. Changes save automatically.</li></ol><a href="/docs#customizer" target="_blank" rel="noopener">Customizer guide &rarr;</a></div>' +
       '<div class="card"><h2>Editor access</h2><p class="note">Browsers that connected the customizer can edit your theme for 30 days. If an admin leaves, sign them all out here.</p>' +
       L.postBtn('/app/revoke-editors', 'Sign out all editors', o.csrf, '', 'Every browser will need to reconnect before editing. Continue?', T) + '</div></div>';
     return L.layout('My app', body, { customer: true, embed: !!o.embedToken, csrf: o.csrf, flash: o.flash, active: '/app' });
   }
-
+  function setupPage(o) {
+  const T = o.embedToken ? '<input type="hidden" name="t" value="' + esc(o.embedToken) + '">' : '';
+  const has = !!o.inst.login;
+  const err = o.error ? '<div class="flash err">' + esc(o.error) + '</div>' : '';
+  const body = '<div class="card" style="max-width:460px;margin:30px auto"><h1>' + (has ? 'Change email or password' : 'Choose your sign-in') + '</h1>' +
+    '<p class="sub">' + (o.setup && !has ? 'Almost done. Pick the email and password you will use to open this app page from now on.' : 'These open this app page outside your CRM. Inside the CRM sidebar you stay signed in automatically.') + '</p>' + err +
+    '<form method="post" action="/app/setup">' + L.csrfField(o.csrf) + T +
+    '<label for="email">Email</label><input type="email" id="email" name="email" value="' + esc(o.email || (has ? o.inst.login.email : '')) + '" autocomplete="username" required>' +
+    (o.needCurrent ? '<label for="current" style="margin-top:12px;display:block">Current password</label><input type="password" id="current" name="current" autocomplete="current-password" required>' : '') +
+    '<label for="password" style="margin-top:12px;display:block">' + (has ? 'New password' : 'Password') + ' (10+ characters)</label><input type="password" id="password" name="password" autocomplete="new-password" minlength="10" required>' +
+    '<label for="confirm" style="margin-top:12px;display:block">Repeat password</label><input type="password" id="confirm" name="confirm" autocomplete="new-password" minlength="10" required>' +
+    (o.embedToken ? '' : '<label style="display:flex;gap:8px;align-items:center;margin:14px 0"><input type="checkbox" name="remember" value="1" style="width:auto"> Keep me signed in for 7 days</label>') +
+    '<button class="btn pri" style="margin-top:14px">' + (has ? 'Save' : 'Save and continue') + '</button> <a class="btn" href="' + (o.embedToken ? '/app?t=' + encodeURIComponent(o.embedToken) : '/app') + '">Cancel</a></form></div>';
+  return L.layout('Sign-in', body, { customer: true, embed: !!o.embedToken, csrf: o.csrf });
+}
   function connectPage(o) {
     let body;
     if (o.error) {
@@ -64,21 +88,21 @@ function createAppViews(L, brand) {
     const open = '<a class="btn pri" href="/app" target="_blank" rel="noopener">Open Ultimate Customizer</a>';
     const body = '<div class="card" style="max-width:560px;margin:30px auto;text-align:center"><h1>' + esc(brand.name) + '</h1>' +
       '<p class="sub" id="msg">' + (o.ssoEnabled ? 'Signing you in\u2026' : 'Open your app page in a new tab to get your code and manage domains.') + '</p>' +
-      '<div id="fallback"' + (o.ssoEnabled ? ' style="display:none"' : '') + '>' + open + '<p class="note" style="margin-top:14px">You may be asked to sign in with your CRM.</p></div></div>';
+      '<div id="fallback"' + (o.ssoEnabled ? ' style="display:none"' : '') + '>' + open + '<p class="note" style="margin-top:14px">You will be asked for the email and password you chose after installing.</p></div></div>';
     const script = o.ssoEnabled ? `
 (function(){var done=false,msg=document.getElementById('msg'),fb=document.getElementById('fallback');
 function fail(t){done=true;msg.textContent=t;fb.style.display='';}
 if(window.top===window.self){location.replace('/app');return;}
 window.addEventListener('message',function(e){var d=e.data;if(done||!d||d.message!=='REQUEST_USER_DATA_RESPONSE')return;done=true;
 fetch('/api/sso',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:d.payload})})
-.then(function(r){return r.json()}).then(function(j){if(j.token)location.replace('/app?t='+encodeURIComponent(j.token));else fail(j.error||'Could not sign you in.')})
+.then(function(r){return r.json()}).then(function(j){if(j.token)location.replace((j.setup?'/app/setup':'/app')+'?t='+encodeURIComponent(j.token));else fail(j.error||'Could not sign you in.')})
 .catch(function(){fail('Could not reach the server.')})});
 window.parent.postMessage({message:'REQUEST_USER_DATA'},'*');
 setTimeout(function(){if(!done)fail('The CRM did not answer the sign-in request (no REQUEST_USER_DATA_RESPONSE). Make sure this page is opened from the app\u2019s sidebar link, or open the app in a new tab.')},8000);})();` : '';
     return L.layout('Ultimate Customizer', body, { customer: true, embed: true, script });
   }
 
-  return { appPage, connectPage, snippets, embedPage };
+  return { appPage, setupPage, connectPage, snippets, embedPage };
 }
 
 module.exports = { createAppViews };

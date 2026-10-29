@@ -16,7 +16,6 @@
                        ("blocked attempts") in the Super Admin panel.
    ===================================================================== */
 const engine = require('../shared/theme-engine');
-const { randomToken } = require('./security');
 
 const COMPANY_RE = /^[A-Za-z0-9_-]{6,64}$/;
 const HOST_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
@@ -27,6 +26,8 @@ const SHARED_HOSTS = ['app.gohighlevel.com', 'app.leadconnectorhq.com', 'app.msg
 const MAX_SEEN = 25;
 const EDITOR_TTL = 30 * 24 * 3600e3;
 const PAIR_TTL = 10 * 60e3;
+const { randomToken, hashPassword, verifyPassword } = require('./security');
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@.]+(\.[^\s@.]+)+$/;
 
 function createLicensing(store, ghl, sec, opts) {
   // 'pending' = new agencies wait for your approval in Super Admin before anything loads.
@@ -49,6 +50,7 @@ function createLicensing(store, ghl, sec, opts) {
       seenHosts: {},               // bound domains -> last seen
       blockedHosts: {},            // unknown domains -> { n, last }
       editorEpoch: 1,              // bump to revoke every editor token
+      login: null,   // { email, hash, epoch, setAt }
       tokens: null,                // encrypted { access, refresh }
       tokenExpiresAt: null,
       scope: '',
@@ -64,6 +66,7 @@ function createLicensing(store, ghl, sec, opts) {
   // Older records may miss newer fields.
   function normalize(inst) {
     if (!inst) return inst;
+    inst.login = inst.login || null;
     inst.boundHosts = inst.boundHosts || inst.allowedHosts || [];
     inst.seenHosts = inst.seenHosts || {};
     inst.blockedHosts = inst.blockedHosts || {};
@@ -283,8 +286,28 @@ function createLicensing(store, ghl, sec, opts) {
     await store.put(inst);
     await store.log(inst.companyId, 'editors_revoked', who || '');
   }
+   const cleanEmail = (e) => String(e || '').trim().toLowerCase().slice(0, 254);
 
+async function setLogin(inst, email, password, who) {
+  email = cleanEmail(email);
+  if (!EMAIL_RE.test(email)) throw new Error('Enter a valid email address.');
+  if (typeof password !== 'string' || password.length < 10) throw new Error('Use a password of at least 10 characters.');
+  if (password.length > 200) throw new Error('That password is too long (200 characters max).');
+  const other = await store.byLoginEmail(email);
+  if (other && other.companyId !== inst.companyId) throw new Error('That email is already used by another agency. Use a different one.');
+  inst.login = { email, hash: await hashPassword(password), epoch: ((inst.login && inst.login.epoch) || 0) + 1, setAt: new Date().toISOString() };
+  await store.put(inst);
+  await store.log(inst.companyId, 'login_set', who || '');
+  return inst;
+}
+
+async function checkLogin(email, password) {
+  const inst = normalize(await store.byLoginEmail(cleanEmail(email)));
+  const ok = await verifyPassword(String(password || ''), inst && inst.login && inst.login.hash);
+  return inst && ok ? inst : null;
+}
   return {
+    setLogin, checkLogin, cleanEmail,
     COMPANY_RE, SHARED_HOSTS, get, byKey, list, isLicensed, statusOf, installFromOAuth, addManual, verify, markUninstalled,
     rotateAssetKey, saveConfig, cleanHost, validHost, isShared, bindHost, unbindHost, noteRequest, modeFor,
     validPair, approvePairing, claimPairing, checkEditorToken, revokeEditors
