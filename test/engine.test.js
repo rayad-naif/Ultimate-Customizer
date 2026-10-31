@@ -134,3 +134,24 @@ test('classic rules never reach the new navigation; the new one is themed separa
   assert.ok(css.includes('.switchyard-nav-item .switchyard-nav-label'));
   assert.ok(!compile({ sections: { switchyard: false } }).includes('.switchyard-account-menu'));
 });
+
+test('panels: sanitized, compiled after the theme, and boosted', () => {
+  const cfg = E.sanitize({ panels: [
+    { sel: '.switchyard-topbar', name: 'Top bar', bg: '#112233', bgA: 0.8, text: '#FFFFFF', glow: '#00e5ff', radius: 12, shadow: 'soft', blur: 10 },
+    { sel: 'a{}', bg: '#000000' },                 // bad selector: dropped
+    { sel: '.x', bg: 'red', shadow: 'huge', bw: 99 }, // bad values dropped / clamped
+    { sel: '.off', bg: '#ffffff', off: true }
+  ] });
+  assert.strictEqual(cfg.panels.length, 3);
+  assert.deepStrictEqual(cfg.panels[1], { sel: '.x', bw: 8 });
+  assert.strictEqual(cfg.panels[0].text, '#ffffff');
+  const css = compile(cfg);
+  const rule = ':is(.switchyard-topbar):not(#uc-p1):not(#uc-p2){background-color:rgba(17, 34, 51, 0.8)!important;color:#ffffff!important;border-radius:12px!important;';
+  assert.ok(css.includes(rule));
+  assert.ok(css.includes('backdrop-filter:blur(10px)!important'));
+  assert.ok(css.indexOf('/* ---- panels ---- */') > css.indexOf('/* ---- settings ---- */'));
+  assert.ok(!css.includes(':is(.off)'), 'paused panels are skipped');
+  assert.ok(!css.includes(':is(.x)'), 'a panel without styles adds no rule');
+  // Too many panels are cut
+  assert.strictEqual(E.sanitize({ panels: Array.from({ length: 60 }, (_, i) => ({ sel: '.p' + i })) }).panels.length, E.MAX_PANELS);
+});

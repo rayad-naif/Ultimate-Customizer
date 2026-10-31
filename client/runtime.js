@@ -83,7 +83,9 @@ var UC = (function () {
     if (Array.isArray(json)) { json.slice(0, 300).forEach((x) => ingest(x, depth + 1)); return; }
     if (typeof json.email === 'string' && json.roles && typeof json.roles === 'object') {
       const cid = json.companyId || json.roles.companyId || null;
-      UC.users[json.email.toLowerCase()] = { roles: json.roles, companyId: cid };
+      const name = typeof json.name === 'string' && json.name.trim() ? json.name
+        : [json.firstName, json.lastName].filter((x) => typeof x === 'string' && x.trim()).join(' ');
+      UC.users[json.email.toLowerCase()] = { roles: json.roles, companyId: cid, name: String(name || '').trim() };
       if (cid) companySeen(cid === L.companyId);
     }
     for (const k in json) if (json[k] && typeof json[k] === 'object') ingest(json[k], depth + 1);
@@ -150,7 +152,28 @@ var UC = (function () {
     '[role="menu"] [class*="identity"], [role="menu"] [class*="user-info"]',
     '.hl_header--dropdown .user-info-card'
   ];
+  const EMAIL_LS = 'uc_last_email';
   let lastEmail = '';
+  const remember = (e) => { lastEmail = e; try { localStorage.setItem(EMAIL_LS, e); } catch (x) { /* ignore */ } return e; };
+  // Initials shown on the avatar button of the new top bar (e.g. "JF").
+  function avatarInitials() {
+    const el = document.querySelector('.switchyard-user-avatar [class*="avatar__text"], [data-switchyard-top-slot="topnav.user"] [class*="avatar__text"], button[aria-label="Account"] [class*="avatar__text"]');
+    const t = el ? el.textContent.replace(/[^A-Za-z]/g, '').toUpperCase() : '';
+    return t.length >= 1 && t.length <= 3 ? t : '';
+  }
+  const initialsOf = (name) => String(name || '').trim().split(/\s+/).filter(Boolean)
+    .map((w) => w.charAt(0)).filter((c, i, a) => i === 0 || i === a.length - 1).join('').toUpperCase();
+  // No email on screen (the new menu may only show a name): match the avatar initials
+  // against the users the CRM loaded. Used only when exactly one user matches.
+  function emailFromAvatar() {
+    const ini = avatarInitials();
+    if (!ini) return '';
+    let stored = '';
+    try { stored = localStorage.getItem(EMAIL_LS) || ''; } catch (x) { /* ignore */ }
+    if (stored && UC.users[stored] && initialsOf(UC.users[stored].name) === ini) return stored;
+    const hits = Object.keys(UC.users).filter((e) => UC.users[e].name && initialsOf(UC.users[e].name) === ini);
+    return hits.length === 1 ? hits[0] : '';
+  }
   // Text nodes are checked one by one: an element's joined textContent can glue
   // the email to the next item ("me@x.comProfile") when the markup has no spaces.
   function emailIn(root) {
@@ -165,15 +188,17 @@ var UC = (function () {
   // `scope` (optional): the open profile menu; it is checked first.
   UC.currentEmail = function (scope) {
     const own = emailIn(scope);
-    if (own) { lastEmail = own; return own; }
+    if (own) return remember(own);
     for (let i = 0; i < EMAIL_SOURCES.length; i++) {
       const els = document.querySelectorAll(EMAIL_SOURCES[i]);
       for (let j = 0; j < els.length; j++) {
         const e = emailIn(els[j]);
-        if (e) { lastEmail = e; return e; }
+        if (e) return remember(e);
       }
     }
-    return lastEmail;
+    if (lastEmail) return lastEmail;
+    const guess = emailFromAvatar();
+    return guess ? remember(guess) : '';
   };
 
   /* ---------------- served stylesheet (link / @import / verified) ---------------- */

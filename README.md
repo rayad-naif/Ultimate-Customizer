@@ -75,6 +75,19 @@ HighLevel has two app designs: the classic header/sidebar and the new navigation
 - **Signed-in user:** the email is read from whichever profile menu is open (classic dropdown, new account menu, or any menu text).
 - **Theme CSS:** the master CSS targets the classic design. Every master rule gets a zero-specificity guard (`:where(:not(...))`) so it can never reach the new navigation. Before this, `.hr-wrapper-container` rules restyled the whole new navigation. The new navigation is themed by its own `switchyard` section (toggle in Advanced), which only paints: colors, fonts, glows, corner radius. It never changes sizes, positions or display, so HighLevel layout changes can't break it.
 - **Sidebar menu settings:** renames, hide and reorder work on both designs (classic `nav > a`, new `.switchyard-managed-row`), including group names and flyout links.
+- **Profile menu in the new design:** the avatar button opens a teleported `hr-dropdown` popover whose rows are `div`s, not links. The Sign out row is found by its text (climbing to the row element), and the item is a deep copy of that row with the label swapped and a palette icon. If the menu shows no email, the avatar initials (e.g. "JF") are matched against the users the CRM loaded.
+- **Troubleshooting:** open the profile menu and run `IRVEX_UC.debug()` in the browser console. It reports the layout, which menu and Sign out row were found, the detected email, and whether that user counts as an agency admin.
+
+## Panels (point-and-click styling)
+
+The **Panels** tab lists the panels found on the current screen (sidebar, top bar, account menu, flyouts, cards, dropdowns, modals, inputs, buttons…) together with their current colors. **Pick on page** lets you click any element instead (↑ / ↓ select the parent or child, Esc cancels). Each panel can have:
+
+- **Colors:** background, opacity, gradient, text & icons (optionally everything inside), hover background
+- **Border & shape:** border color and width, corner radius
+- **Effects:** glow, shadow, glass blur
+- **Font:** font family
+
+Panels are saved in the config (`panels`, max 40), validated like every other setting, and compiled after the theme with a specificity boost, so they win over the theme's own rules. A panel that is not on screen keeps its styles and applies them whenever it appears.
 
 ## Deploy (Vercel + MongoDB Atlas)
 
