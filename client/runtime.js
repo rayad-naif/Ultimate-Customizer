@@ -99,9 +99,81 @@ var UC = (function () {
       setTimeout(() => { if (UC.company !== 'match') UC.kill('this license belongs to a different agency'); }, 1200);
     }
   }
-  UC.currentEmail = function () {
-    const el = document.querySelector('.hl_header--dropdown .user-info-card .text-xs');
-    return el ? el.textContent.trim().toLowerCase() : '';
+  /* ---------------- layout detection ----------------
+     HighLevel can switch between its classic chrome and the new
+     "Switchyard" navigation at any time (it is an SPA), so the layout is
+     re-checked whenever the page changes. <html data-uc-layout="..."> and
+     UC.onLayout let CSS and features adapt. 'unknown' = a future design:
+     every feature then falls back to its generic detection. */
+  const SWITCHYARD = '.switchyard-shell,[data-switchyard-version],.switchyard-topbar,.switchyard-sidebar';
+  const CLASSIC = '.hl_header--controls,.hl_header--dropdown,#sidebar-v2 nav[aria-label="header"]';
+  UC.detectLayout = function () {
+    const b = document.body;
+    if (!b) return 'unknown';
+    if (b.classList.contains('switchyard-owns-chrome') || document.querySelector(SWITCHYARD)) return 'switchyard';
+    if (document.querySelector(CLASSIC)) return 'classic';
+    return 'unknown';
+  };
+  UC.layout = null;
+  on.layout = [];
+  UC.onLayout = (fn) => on.layout.push(fn);
+  let layoutRaf = 0;
+  function syncLayout() {
+    layoutRaf = 0;
+    if (UC.killed) return;
+    const l = UC.detectLayout();
+    if (l === UC.layout) return;
+    UC.layout = l;
+    try { document.documentElement.setAttribute('data-uc-layout', l); } catch (e) { /* ignore */ }
+    emit('layout');
+  }
+  UC.syncLayout = syncLayout;
+  (function watchLayout() {
+    const start = () => {
+      syncLayout();
+      // Cheap: only schedules a check per animation frame.
+      new MutationObserver(() => { if (!layoutRaf) layoutRaf = requestAnimationFrame(syncLayout); })
+        .observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    };
+    if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+  })();
+
+  /* ---------------- signed-in user ----------------
+     The email shown in whichever profile menu the CRM uses. Tried in
+     order; the generic ones cover future designs. Remembered, because the
+     new menu only exists while it is open. */
+  const EMAIL_RE = /[A-Z0-9._%+'-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+  const EMAIL_SOURCES = [
+    '.hl_header--dropdown .user-info-card .text-xs',
+    '.switchyard-account-menu [class*="account-menu__copy"] small',
+    '.switchyard-account-menu [class*="account-menu__identity"]',
+    '[role="menu"] [class*="identity"], [role="menu"] [class*="user-info"]',
+    '.hl_header--dropdown .user-info-card'
+  ];
+  let lastEmail = '';
+  // Text nodes are checked one by one: an element's joined textContent can glue
+  // the email to the next item ("me@x.comProfile") when the markup has no spaces.
+  function emailIn(root) {
+    if (!root) return '';
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const m = (n.nodeValue || '').match(EMAIL_RE);
+      if (m) return m[0].toLowerCase();
+    }
+    return '';
+  }
+  // `scope` (optional): the open profile menu; it is checked first.
+  UC.currentEmail = function (scope) {
+    const own = emailIn(scope);
+    if (own) { lastEmail = own; return own; }
+    for (let i = 0; i < EMAIL_SOURCES.length; i++) {
+      const els = document.querySelectorAll(EMAIL_SOURCES[i]);
+      for (let j = 0; j < els.length; j++) {
+        const e = emailIn(els[j]);
+        if (e) { lastEmail = e; return e; }
+      }
+    }
+    return lastEmail;
   };
 
   /* ---------------- served stylesheet (link / @import / verified) ---------------- */

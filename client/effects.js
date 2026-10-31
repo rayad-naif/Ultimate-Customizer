@@ -22,6 +22,9 @@
     const canvas = document.createElement('canvas');
     canvas.id = id;
     canvas.style.cssText = 'position:absolute;top:0;left:0;z-index:0;pointer-events:none';
+    // The canvas is positioned against its container; only touch the container if it is static
+    // (never override a layout the CRM set, e.g. sticky or absolute in the new navigation).
+    try { if (getComputedStyle(container).position === 'static') container.style.position = 'relative'; } catch (e) { /* ignore */ }
     container.insertBefore(canvas, container.firstChild);
 
     const ctx = canvas.getContext('2d');
@@ -109,7 +112,9 @@
   }
 
   function initSidebarNetwork() {
-    const sidebar = document.querySelector('aside, .sidebar-v2, #sidebar-v2, .hl_sidebar');
+    // Most specific first: the new navigation keeps id="sidebar-v2" on its sidebar section.
+    const sidebar = ['#sidebar-v2', '.switchyard-sidebar', '.sidebar-v2', '.hl_sidebar', 'aside']
+      .map((sel) => document.querySelector(sel)).find(Boolean);
     if (!sidebar || document.getElementById('irvex-network-canvas')) return;
     createNetwork(sidebar, 'irvex-network-canvas', {
       enabled: () => v('net.enabled') && !v('fx.reduceMotion'),

@@ -21,12 +21,12 @@
   /* ------------------------------------------------------------------
      1. ADMIN DETECTION
   ------------------------------------------------------------------ */
-  function isAdmin() {
+  function isAdmin(menu) {
     if (UC.killed || UC.company === 'mismatch') {
       return false;
     }
 
-    const user = UC.users[UC.currentEmail()];
+    const user = UC.users[UC.currentEmail(menu)];
     const roles = user && user.roles;
     return Boolean(
       roles &&
@@ -48,13 +48,51 @@
     const m = id.match(/^sb_[^.]+\.(.+)$/);
     return m ? '*.' + m[1] : id;
   }
+  /* Sidebar links in whichever chrome is on screen:
+     { el, key, label (the element holding the visible name), top (a top-level entry) }.
+       classic     #sidebar-v2 nav[aria-label="header"] > a  .nav-title
+       switchyard  #sidebar-v2 [id^="sb_"]  .switchyard-nav-label (links, groups, flyout links)
+       other       any [id^="sb_"] link in the sidebar, label = its text-only child */
+  function labelOf(el) {
+    if (el.tagName === 'SECTION') {
+      // A group: its name is on the toggle button, not on the section.
+      const toggle = el.querySelector(':scope > button, :scope > [role="button"]');
+      return toggle && toggle.querySelector('.switchyard-nav-label, [class*="nav-label"], [class*="title"]');
+    }
+    const known = el.querySelector('.nav-title, .switchyard-nav-label, [class*="nav-label"], [class*="nav-title"]');
+    if (known) return known;
+    // Unknown design: the deepest element whose only content is the visible text.
+    const leaves = Array.from(el.querySelectorAll('span, p, div')).filter((n) => !n.children.length && n.textContent.trim());
+    return leaves[leaves.length - 1] || null;
+  }
+  function navItems() {
+    const classic = document.querySelectorAll(navigationSelector + ' > a');
+    if (classic.length) {
+      return Array.from(classic).map((a) => ({ el: a, key: keyOf(a), label: a.querySelector('.nav-title'), top: true })).filter((x) => x.label);
+    }
+    const root = document.getElementById('sidebar-v2') || document.querySelector('.switchyard-sidebar, aside, .hl_sidebar');
+    const scopes = [root].concat(Array.from(document.querySelectorAll('.switchyard-flyout'))).filter(Boolean);
+    const seen = new Set();
+    const out = [];
+    scopes.forEach((scope) => {
+      scope.querySelectorAll('a[id^="sb_"], section[id^="sb_"]').forEach((el) => {
+        if (seen.has(el)) return;
+        seen.add(el);
+        const label = labelOf(el);
+        if (!label) return;
+        const row = el.parentElement;
+        const top = !!(row && row.classList.contains('switchyard-managed-row') && scope === root);
+        out.push({ el, key: keyOf(el), label, top });
+      });
+    });
+    return out;
+  }
   function applyNames() {
     const names = (UC.live && !UC.killed ? (UC.active.sidebar[currentView()] || {}).names : null) || {};
-    document.querySelectorAll(navigationSelector + ' > a').forEach((a) => {
-      const t = a.querySelector('.nav-title');
-      if (!t) return;
+    navItems().forEach((it) => {
+      const t = it.label;
       if (!t.dataset.irvexOrig) t.dataset.irvexOrig = t.textContent.trim();
-      const want = names[keyOf(a)];
+      const want = names[it.key];
       const target = want && want.trim() ? want.trim() : t.dataset.irvexOrig;
       if (t.textContent !== target) t.textContent = target;
     });
@@ -85,6 +123,50 @@
   /* ------------------------------------------------------------------
      3. MENU ITEM
   ------------------------------------------------------------------ */
+  /* The profile menu is found by what it does, not by its class names:
+     the open menu that holds a "Sign out" / "Log out" action. Our item is
+     built from that action (same element type, classes and Vue scope
+     attributes), so it looks native in the classic dropdown, in the new
+     account menu and in any future design. */
+  const SIGN_OUT = /^\s*(sign|log)\s*-?\s*out\s*$/i;
+  const MENU_SELECTORS = [
+    '.hl_header--dropdown .dropdown-menu',
+    '.switchyard-account-menu',
+    '[role="menu"]',
+    '.dropdown-menu.show',
+    '[class*="account-menu"]',
+    '[class*="user-menu"]',
+    '[class*="profile-menu"]'
+  ];
+  function isVisible(el) {
+    if (!el || !el.isConnected) return false;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    const s = getComputedStyle(el);
+    return s.visibility !== 'hidden' && s.display !== 'none';
+  }
+  function findSignOut(menu) {
+    return Array.from(menu.querySelectorAll('a, button, [role="menuitem"]'))
+      .find((el) => el.id !== 'irvex-uc-menu-item' && SIGN_OUT.test(el.textContent || ''));
+  }
+  function findAccountMenu() {
+    for (let i = 0; i < MENU_SELECTORS.length; i++) {
+      const menus = document.querySelectorAll(MENU_SELECTORS[i]);
+      for (let j = 0; j < menus.length; j++) {
+        const menu = menus[j];
+        const signout = findSignOut(menu);
+        if (!signout) continue;
+        // The classic dropdown stays in the DOM while closed; others only count when shown.
+        const classic = i === 0;
+        if (!classic && !isVisible(menu)) continue;
+        return { menu, signout, kind: classic ? 'classic' : (menu.classList.contains('switchyard-account-menu') ? 'switchyard' : 'generic') };
+      }
+    }
+    return null;
+  }
+  function isSeparator(el) {
+    return !!el && (el.getAttribute('role') === 'separator' || el.tagName === 'HR' || /divider|separator/i.test(el.className || ''));
+  }
   function removeMenuItem() {
     const existing = document.getElementById('irvex-uc-menu-item');
     if (!existing) return;
@@ -92,23 +174,8 @@
     if (n && n.classList.contains('irvex-uc-hr')) n.remove();
     existing.remove();
   }
-  function ensureMenuItem() {
-    const menu = document.querySelector('.hl_header--dropdown .dropdown-menu');
-    if (!menu || !isAdmin()) {
-      removeMenuItem();
-      return;
-    }
-    const label = UC.mode === 'setup' ? 'Connect Ultimate Customizer' : 'Ultimate Customizer';
-    const existing = document.getElementById('irvex-uc-menu-item');
-    if (existing && menu.contains(existing)) {
-      return;
-    }
-    const signout = Array.from(menu.querySelectorAll('a.dropdown-item')).find((a) => /sign\s*out/i.test(a.textContent));
-    if (!signout) {
-      return;
-    }
+  function buildClassicItem(label) {
     const item = document.createElement('a');
-    item.id = 'irvex-uc-menu-item';
     item.className = 'py-2 dropdown-item';
     item.href = '#';
     const icon = document.createElement('i');
@@ -116,9 +183,73 @@
     icon.style.marginRight = '8px';
     item.appendChild(icon);
     item.appendChild(document.createTextNode(label));
-    const hr = document.createElement('hr');
-    hr.className = 'dropdown-divider irvex-uc-hr';
-    signout.before(item, hr);
+    return item;
+  }
+  function buildNativeItem(signout, label) {
+    const tag = signout.tagName === 'A' ? 'a' : 'button';
+    const item = document.createElement(tag);
+    Array.from(signout.attributes).forEach((a) => {
+      // Scoped-style markers (data-v-xxxx) and menu semantics; never ids, handlers or hrefs.
+      if (/^data-v-/.test(a.name) || a.name === 'role' || a.name === 'tabindex') item.setAttribute(a.name, a.value);
+    });
+    item.className = Array.from(signout.classList)
+      .filter((c) => !/(^|[-_])(sign-?out|log-?out|danger|destructive|critical|error)([-_]|$)/i.test(c)).join(' ');
+    if (tag === 'button') item.type = 'button'; else item.href = '#';
+    if (!item.getAttribute('role') && signout.closest('[role="menu"]')) item.setAttribute('role', 'menuitem');
+    // Copy the inner wrapper if the action keeps its text in one (e.g. <span>Sign out</span>).
+    const inner = signout.firstElementChild;
+    if (inner && signout.children.length === 1 && SIGN_OUT.test(inner.textContent || '')) {
+      const wrap = inner.cloneNode(false);
+      wrap.removeAttribute('id');
+      wrap.textContent = label;
+      item.appendChild(wrap);
+    } else {
+      item.textContent = label;
+    }
+    return item;
+  }
+  function ensureMenuItem() {
+    const found = findAccountMenu();
+    if (!found || !isAdmin(found.menu)) {
+      removeMenuItem();
+      return;
+    }
+    const label = UC.mode === 'setup' ? 'Connect Ultimate Customizer' : 'Ultimate Customizer';
+    const existing = document.getElementById('irvex-uc-menu-item');
+    if (existing && found.menu.contains(existing)) {
+      if (existing.dataset.ucLabel !== label) { removeMenuItem(); } else return;
+    } else if (existing) {
+      removeMenuItem();
+    }
+    let item;
+    if (found.kind === 'classic') {
+      item = buildClassicItem(label);
+      const hr = document.createElement('hr');
+      hr.className = 'dropdown-divider irvex-uc-hr';
+      item.id = 'irvex-uc-menu-item';
+      item.dataset.ucLabel = label;
+      found.signout.before(item, hr);
+      return;
+    }
+    item = buildNativeItem(found.signout, label);
+    item.id = 'irvex-uc-menu-item';
+    item.dataset.ucLabel = label;
+    item.setAttribute('aria-label', label);
+    // Above the divider that precedes Sign out, so Sign out stays last on its own.
+    let anchor = found.signout;
+    if (isSeparator(anchor.previousElementSibling)) anchor = anchor.previousElementSibling;
+    anchor.before(item);
+  }
+  function closeAccountMenu(menu) {
+    // Ask the CRM to close its menu the way a user would (Escape), then fall back to an outside click.
+    const esc = { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true, cancelable: true };
+    try { (menu || document.body).dispatchEvent(new KeyboardEvent('keydown', esc)); } catch (e) { /* ignore */ }
+    try { document.dispatchEvent(new KeyboardEvent('keydown', esc)); } catch (e) { /* ignore */ }
+    setTimeout(() => {
+      if (menu && isVisible(menu)) {
+        try { document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); document.body.dispatchEvent(new MouseEvent('click', { bubbles: true })); } catch (e) { /* ignore */ }
+      }
+    }, 60);
   }
   document.addEventListener('click', (e) => {
     const t = e.target.closest && e.target.closest('#irvex-uc-menu-item');
@@ -126,6 +257,9 @@
       return;
     }
     e.preventDefault();
+    e.stopPropagation();
+    const menu = t.closest('[role="menu"], .dropdown-menu, .switchyard-account-menu');
+    if (!(menu && menu.classList.contains('dropdown-menu'))) closeAccountMenu(menu);
     if (UC.mode === 'setup' || !UC.editorToken()) {
       openUI('connect');
       return;
@@ -500,9 +634,10 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
 
   function sidebarItems() {
     const sb = draft.sidebar[currentView()];
-    const items = Array.from(document.querySelectorAll(navigationSelector + ' > a')).filter((a) => keyOf(a)).map((a, i) => {
-      const t = a.querySelector('.nav-title');
-      return { key: keyOf(a), orig: (t && (t.dataset.irvexOrig || t.textContent.trim())) || keyOf(a), idx: i };
+    // Top-level entries only: those are the ones that can be reordered or hidden as a row.
+    const items = navItems().filter((it) => it.top && it.key).map((it, i) => {
+      const t = it.label;
+      return { key: it.key, orig: (t && (t.dataset.irvexOrig || t.textContent.trim())) || it.key, idx: i };
     });
     const pos = (k) => { const i = sb.order.indexOf(k); return i < 0 ? 1000 : i; };
     items.sort((a, b) => pos(a.key) - pos(b.key) || a.idx - b.idx);
@@ -963,17 +1098,25 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   if (UC.mode !== 'setup') {
     applyNames();
   }
+  // The profile menu is rendered on demand (and re-rendered by the CRM),
+  // so add the item as soon as a menu appears, with a slow timer as a backstop.
+  let menuRaf = 0;
+  function syncMenu() {
+    menuRaf = 0;
+    if (UC.killed) return;
+    try { ensureMenuItem(); } catch (e) { /* never break the CRM */ }
+  }
+  const menuObs = new MutationObserver(() => { if (!menuRaf) menuRaf = requestAnimationFrame(syncMenu); });
+  const startMenuObs = () => menuObs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+  if (document.body) startMenuObs(); else document.addEventListener('DOMContentLoaded', startMenuObs);
+  UC.onKill(() => menuObs.disconnect());
+  if (UC.onLayout) UC.onLayout(() => { removeMenuItem(); syncMenu(); if (UC.mode !== 'setup') applyNames(); });
   const iv = setInterval(() => {
     if (UC.killed) {
       clearInterval(iv);
       return;
     }
-
-    try {
-      ensureMenuItem();
-    } catch (e) {
-      /* never break the CRM */
-    }
+    syncMenu();
   }, 600);
 
   window.IRVEX_UC = {

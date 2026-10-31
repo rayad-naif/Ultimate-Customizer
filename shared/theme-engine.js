@@ -19,6 +19,19 @@
   const TOKENS = R.TOKENS;
   const NAV = '#sidebar-v2 nav[aria-label="header"]';
 
+  /* ---------------- layouts ----------------
+     HighLevel ships two app chromes:
+       classic     .hl_header + #sidebar-v2 nav[aria-label="header"]
+       switchyard  the new navigation (body.switchyard-owns-chrome, .switchyard-*)
+     The master CSS was written for the classic chrome. Its generic rules
+     (e.g. .hr-wrapper-container, which also wraps the whole new navigation)
+     must never reach the switchyard chrome, so every master rule gets a
+     zero-specificity guard that excludes it. The switchyard chrome is themed
+     by its own section, which only paints (colors, fonts, glows). */
+  const CHROME = '[class*="switchyard-"]:not(body,html)';
+  const GUARD = ':where(:not(' + CHROME + ',' + CHROME + ' *))';
+  const SY = '.switchyard-shell #sidebar-v2,.switchyard-sidebar';
+
   const DEFAULTS = {
     v: 2,
     theme: 'irvex',
@@ -191,6 +204,83 @@
     });
   }
 
+  /* ---------------- chrome guard ----------------
+     Rewrites every rule's selectors so they cannot match the switchyard
+     chrome. Handles comments, strings, nested @media/@supports/@container/
+     @layer blocks; leaves @keyframes, @font-face, @import as they are.
+     Selectors that target our own elements or name the switchyard on
+     purpose are left alone. */
+  function scanTo(css, i, stops) {
+    // Index of the first char in `stops` at depth 0 outside strings/comments, or css.length.
+    let depth = 0;
+    while (i < css.length) {
+      const c = css[i];
+      if (c === '/' && css[i + 1] === '*') { const e = css.indexOf('*/', i + 2); i = e < 0 ? css.length : e + 2; continue; }
+      if (c === '"' || c === "'") { i++; while (i < css.length && css[i] !== c) { if (css[i] === '\\') i++; i++; } i++; continue; }
+      if (depth === 0 && stops.indexOf(c) !== -1) return i;
+      if (c === '(' || c === '[') depth++;
+      else if ((c === ')' || c === ']') && depth > 0) depth--;
+      i++;
+    }
+    return i;
+  }
+  function blockEnd(css, open) {
+    // css[open] === '{'  ->  index of its matching '}'
+    let depth = 0, i = open;
+    while (i < css.length) {
+      const c = css[i];
+      if (c === '/' && css[i + 1] === '*') { const e = css.indexOf('*/', i + 2); i = e < 0 ? css.length : e + 2; continue; }
+      if (c === '"' || c === "'") { i++; while (i < css.length && css[i] !== c) { if (css[i] === '\\') i++; i++; } i++; continue; }
+      if (c === '{') depth++;
+      else if (c === '}') { depth--; if (depth === 0) return i; }
+      i++;
+    }
+    return css.length;
+  }
+  const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
+  const OWN = /irvex|\buc-|switchyard/i;
+  function guardSelector(s) {
+    s = s.trim();
+    if (!s || OWN.test(s)) return s;
+    // Insert before a trailing pseudo-element (::before, ::-webkit-x, legacy :before / :after).
+    const m = s.match(/(::?(?:before|after|first-line|first-letter|placeholder|selection|marker|backdrop|-webkit-[\w-]+|-moz-[\w-]+)(?:\([^)]*\))?)$/i);
+    if (m) return s.slice(0, s.length - m[1].length) + GUARD + m[1];
+    return s + GUARD;
+  }
+  function guardList(prelude) {
+    const parts = [];
+    let i = 0;
+    while (i <= prelude.length) {
+      const j = scanTo(prelude, i, ',');
+      parts.push(guardSelector(prelude.slice(i, j)));
+      i = j + 1;
+    }
+    return parts.filter(Boolean).join(',');
+  }
+  function guardCss(css) {
+    let out = '', i = 0;
+    while (i < css.length) {
+      const j = scanTo(css, i, '{;}');
+      if (j >= css.length) { out += css.slice(i); break; }
+      const prelude = stripComments(css.slice(i, j)).trim();
+      if (css[j] === ';' || css[j] === '}') { out += css.slice(i, j + 1); i = j + 1; continue; }
+      const end = blockEnd(css, j);
+      const inner = css.slice(j + 1, end);
+      if (prelude.charAt(0) === '@') {
+        out += /^@(media|supports|container|layer|document|scope)\b/i.test(prelude)
+          ? prelude + '{' + guardCss(inner) + '}'
+          : prelude + '{' + inner + '}';
+      } else if (/^(from|to|\d[\d.]*%)(\s*,\s*(from|to|\d[\d.]*%))*$/i.test(prelude)) {
+        out += prelude + '{' + inner + '}';
+      } else {
+        out += guardList(prelude) + '{' + inner + '}';
+      }
+      out += '\n';
+      i = end + 1;
+    }
+    return out;
+  }
+
   function sel(k) {
     return k.indexOf('*.') === 0 ? '[id^="sb_"][id$=".' + cssEsc(k.slice(2)) + '"]' : '[id="' + cssEsc(k) + '"]';
   }
@@ -200,14 +290,25 @@
     ['agency', 'location'].forEach((view) => {
       const sb = cfg.sidebar[view];
       if (!sb) return;
+      // Classic chrome: the links are direct children of the nav.
       const scope = '.sidebar-v2-' + view + ' ' + NAV;
+      // New chrome: each top-level link or group sits in its own row.
+      const sy = 'body:has(.sidebar-v2-' + view + ') #sidebar-v2 .switchyard-customizable-section';
+      const row = (k) => sy + ' > .switchyard-managed-row:has(> ' + sel(k) + ')';
       if (sb.order && sb.order.length) {
         css += scope + '{display:flex!important;flex-direction:column!important}\n';
         css += scope + ' > *{order:1000}\n';
         css += scope + ' > .divider{display:none!important}\n';
         sb.order.forEach((k, i) => { css += scope + ' > a' + sel(k) + '{order:' + ((i + 1) * 10) + '!important}\n'; });
+        css += sy + '{display:flex!important;flex-direction:column!important}\n';
+        css += sy + ' > *{order:1000}\n';
+        sb.order.forEach((k, i) => { css += row(k) + '{order:' + ((i + 1) * 10) + '!important}\n'; });
       }
-      (sb.hidden || []).forEach((k) => { css += scope + ' > a' + sel(k) + '{display:none!important}\n'; });
+      (sb.hidden || []).forEach((k) => {
+        css += scope + ' > a' + sel(k) + '{display:none!important}\n';
+        css += row(k) + '{display:none!important}\n';
+        css += 'body:has(.sidebar-v2-' + view + ') .switchyard-flyout ' + sel(k) + '{display:none!important}\n';
+      });
     });
     (cfg.hideSelectors || []).forEach((s) => { css += s + '{display:none!important}\n'; });
     return css;
@@ -253,6 +354,21 @@
     return c.join('\n') + '\n';
   }
 
+  // Behaviour switches for the new (switchyard) chrome. Paint only, never layout.
+  function switchyardExtras(r) {
+    const c = [];
+    if (r['sidebar.bgStyle'] === 'gradient') c.push(SY + '{background-image:linear-gradient(' + r['sidebar.angle'] + 'deg,' + r['sidebar.bg'] + ',' + r['sidebar.bg2'] + ')!important}');
+    if (r['sidebar.edge']) c.push(SY + '{box-shadow:inset -1px 0 0 ' + rgba(r['sidebar.edgeColor'], 0.6) + ',4px 0 24px ' + rgba(r['sidebar.edgeColor'], 0.18) + '!important}');
+    if (r['nav.activeBg']) {
+      c.push('#sidebar-v2 .switchyard-nav-item[aria-current="page"],#sidebar-v2 .switchyard-nav-item.router-link-exact-active,.switchyard-flyout .switchyard-nav-item[aria-current="page"]{background:' +
+        rgba(r['nav.active'], 0.12) + '!important;border-radius:' + fmtNum(8 * r['fx.radius']) + 'px!important;box-shadow:inset 3px 0 0 ' + r['nav.active'] + '!important}');
+    }
+    if (r['header.btnRadius'] > 0) {
+      c.push('.switchyard-topbar .switchyard-top-action,.switchyard-topbar .switchyard-top-ask-ai,.switchyard-topbar .switchyard-user-avatar{border-radius:' + r['header.btnRadius'] + 'px!important}');
+    }
+    return c.length ? c.join('\n') + '\n' : '';
+  }
+
   function fontImport(r) {
     const fams = [r['type.font'], r['type.headingFont']]
       .filter((f, i, a) => f && a.indexOf(f) === i && R.SYSTEM_FONTS.indexOf(f) === -1);
@@ -269,9 +385,15 @@
     const off = Object.assign({}, cfg.sections);
     if (r['content.mode'] === 'dark') { off.contentLight = false; off.contentLightText = false; }
     const unknown = [];
-    const body = sections(template).filter((s) => off[s.id] !== false).map((s) => fill(s.css, r, unknown)).join('');
+    // Master sections target the classic chrome: guard them away from the new one.
+    // The 'switchyard' section is written for the new chrome and is used as is.
+    const body = sections(template).filter((s) => off[s.id] !== false).map((s) => {
+      const css = fill(s.css, r, unknown);
+      return s.id === 'switchyard' ? css : guardCss(css);
+    }).join('');
     if (opts && opts.unknown) opts.unknown.push.apply(opts.unknown, unknown);
-    return fontImport(r) + body + '\n/* ---- settings ---- */\n' + extrasCss(r) + sidebarCss(cfg) +
+    return fontImport(r) + body + '\n/* ---- settings ---- */\n' + guardCss(extrasCss(r)) +
+      (off.switchyard !== false ? switchyardExtras(r) : '') + sidebarCss(cfg) +
       (cfg.customCss ? '\n/* ---- custom CSS ---- */\n' + cfg.customCss + '\n' : '');
   }
 
@@ -288,7 +410,7 @@
   }
 
   return {
-    R, TOKENS, DEFAULTS, NAV, FONTS: R.FONTS,
+    R, TOKENS, DEFAULTS, NAV, GUARD, guardCss, FONTS: R.FONTS,
     clone, isHex, hexToRgb, rgbToHex, rgba,
     sanitize, resolve, compile, applyTheme, sections, sidebarCss
   };

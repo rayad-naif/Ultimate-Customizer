@@ -290,7 +290,8 @@
     ['sidebar', 'Sidebar background'], ['ripple', 'Click ripple'], ['nav', 'Sidebar menu text'], ['switcher', 'Location switcher'],
     ['banner', 'Notification banner'], ['login', 'Login page'], ['header', 'Header buttons, avatar & dropdown'], ['topnav', 'Top navigation tabs'],
     ['loader', 'Loading screen'], ['sublogo', 'Sub-account logo'], ['wrapper', 'Page wrapper & headings'], ['patches', 'Structure patches'],
-    ['contentDark', 'Content (dark base)'], ['contentLight', 'Content (light)'], ['contentLightText', 'Light text fixes']
+    ['contentDark', 'Content (dark base)'], ['contentLight', 'Content (light)'], ['contentLightText', 'Light text fixes'],
+    ['switchyard', 'New HighLevel navigation']
   ];
 
   /* Prebuilt themes: palette + optional extra settings. */
