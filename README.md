@@ -66,6 +66,16 @@ Anything delivered to a browser can be copied by hand, so no web app can make CS
 * `client/`: `runtime.js` (license guard, preview, saving, realtime), `effects.js` (networks, ripple, logo, login text), `customizer.js` (menu item, connect flow, editor).
 * `server/`: Express app, licensing, OAuth, bundler, views, and the MongoDB/file stores.
 
+## Classic and new HighLevel navigation
+
+HighLevel has two app designs: the classic header/sidebar and the new navigation ("Switchyard", `body.switchyard-owns-chrome`). Agencies can switch between them at any time without a reload, so everything adapts live:
+
+- **Detection:** the script checks the page whenever it changes and sets `<html data-uc-layout="classic | switchyard | unknown">`. `unknown` means a future design; every feature then uses its generic fallback.
+- **Profile menu item:** the menu is found by what it does (an open menu with a "Sign out"/"Log out" action), not by class names. The "Ultimate Customizer" item is built from that action, with the same element type, classes and Vue scope attributes, so it looks native in any design. It is placed above the divider before Sign out, and added back whenever the CRM re-renders the menu.
+- **Signed-in user:** the email is read from whichever profile menu is open (classic dropdown, new account menu, or any menu text).
+- **Theme CSS:** the master CSS targets the classic design. Every master rule gets a zero-specificity guard (`:where(:not(...))`) so it can never reach the new navigation. Before this, `.hr-wrapper-container` rules restyled the whole new navigation. The new navigation is themed by its own `switchyard` section (toggle in Advanced), which only paints: colors, fonts, glows, corner radius. It never changes sizes, positions or display, so HighLevel layout changes can't break it.
+- **Sidebar menu settings:** renames, hide and reorder work on both designs (classic `nav > a`, new `.switchyard-managed-row`), including group names and flyout links.
+
 ## Deploy (Vercel + MongoDB Atlas)
 
 * **Atlas**: project *UltimateThemeCustomizer*, cluster *UltimateAtelier*, database `UltimateThemeCustomizer`.
