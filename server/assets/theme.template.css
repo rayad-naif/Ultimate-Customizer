@@ -1548,3 +1548,187 @@ img.agency-logo.irvex-subaccount-logo:hover {
 .n-base-selection-label {
     color: [[content.text]] !important;
 }
+
+/*@section switchyard*/
+/* ==========================================
+   NEW HIGHLEVEL NAVIGATION ("Switchyard")
+   body.switchyard-owns-chrome / .switchyard-shell
+   Paint only: colors, fonts, glows and corner radius. No sizes,
+   positions or display changes, so the new layout keeps working
+   when HighLevel moves things around. Every selector names a
+   switchyard class, so none of this can reach the classic chrome.
+========================================== */
+
+/* 1. Sidebar, account rail and frame edge */
+.switchyard-shell .switchyard-sidebar,
+.switchyard-shell .switchyard-account-rail,
+.switchyard-shell .switchyard-accounts-directory {
+    background-color: [[sidebar.bg]] !important;
+}
+.switchyard-shell .switchyard-navigation-frame-edge {
+    background-color: [[sidebar.edgeColor/0.25]] !important;
+}
+
+/* 2. Workspace name + collapse button */
+.switchyard-shell .switchyard-workspace-label {
+    font-family: [[type.headingFont]], 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    color: [[nav.text]] !important;
+    text-shadow: 0 0 [[fx.glow*6px]] [[nav.glow/0.25]] !important;
+}
+.switchyard-shell .switchyard-sidebar-collapse,
+.switchyard-shell .switchyard-sidebar-collapse .switchyard-icon {
+    color: [[nav.text]] !important;
+}
+
+/* 3. Menu links and groups (also inside flyouts) */
+.switchyard-nav-item .switchyard-nav-label,
+.switchyard-group-toggle .switchyard-nav-label,
+.switchyard-recent-label {
+    font-family: [[type.font]], 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    font-size: [[nav.fontSize]] !important;
+    font-weight: [[nav.fontWeight]] !important;
+    letter-spacing: [[nav.letterSpacing]] !important;
+    text-transform: [[nav.transform]] !important;
+    color: [[nav.text]] !important;
+    text-shadow: 0 0 [[fx.glow*4px]] [[nav.glow/0.2]] !important;
+    transition: color [[fx.speed*0.3s]] ease-in-out, text-shadow [[fx.speed*0.3s]] ease-in-out !important;
+}
+.switchyard-nav-item .switchyard-nav-icon,
+.switchyard-group-toggle .switchyard-nav-icon,
+.switchyard-group-toggle .switchyard-chevron,
+.switchyard-nav-item .switchyard-icon,
+.switchyard-group-toggle .switchyard-icon {
+    color: [[nav.text]] !important;
+    transition: color [[fx.speed*0.3s]] ease-in-out !important;
+}
+.switchyard-nav-item:hover .switchyard-nav-label,
+.switchyard-group-toggle:hover .switchyard-nav-label,
+.switchyard-nav-item:focus-visible .switchyard-nav-label,
+.switchyard-group-toggle:focus-visible .switchyard-nav-label {
+    color: [[nav.hover]] !important;
+    text-shadow: 0 0 [[fx.glow*8px]] [[nav.hover/0.7]], 0 0 [[fx.glow*16px]] [[nav.glow2/0.5]] !important;
+}
+.switchyard-nav-item:hover .switchyard-icon,
+.switchyard-group-toggle:hover .switchyard-icon {
+    color: [[nav.hover]] !important;
+}
+.switchyard-nav-item[aria-current="page"] .switchyard-nav-label,
+.switchyard-nav-item.router-link-exact-active .switchyard-nav-label,
+.switchyard-group-toggle[aria-expanded="true"] .switchyard-nav-label {
+    color: [[nav.active]] !important;
+    font-weight: [[nav.activeWeight]] !important;
+    text-shadow: 0 0 [[fx.glow*10px]] [[nav.active/0.6]] !important;
+}
+.switchyard-nav-item[aria-current="page"] .switchyard-icon,
+.switchyard-nav-item.router-link-exact-active .switchyard-icon,
+.switchyard-group-toggle[aria-expanded="true"] .switchyard-icon {
+    color: [[nav.active]] !important;
+}
+
+/* 4. Group flyouts (e.g. Settings) */
+.switchyard-flyout {
+    background: [[dropdown.bg/dropdown.opacity]] !important;
+    backdrop-filter: blur([[fx.blur*20px]]) !important;
+    -webkit-backdrop-filter: blur([[fx.blur*20px]]) !important;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px [[dropdown.border/0.35]], 0 0 25px [[dropdown.item/0.12]] !important;
+    border-radius: [[dropdown.radius]] !important;
+}
+.switchyard-flyout .switchyard-flyout-title {
+    color: [[dropdown.name]] !important;
+    font-family: [[type.headingFont]], sans-serif !important;
+}
+.switchyard-flyout .switchyard-flyout-close,
+.switchyard-flyout .switchyard-flyout-pin {
+    color: [[dropdown.item]] !important;
+}
+
+/* 5. Top bar: breadcrumb and action buttons */
+.switchyard-shell .switchyard-topbar {
+    background-color: [[topnav.bg/topnav.opacity]] !important;
+    box-shadow: inset 0 -1px 0 [[topnav.border/0.3]] !important;
+}
+.switchyard-topbar .switchyard-breadcrumb-label-text,
+.switchyard-topbar .switchyard-breadcrumb-label {
+    color: [[topnav.title]] !important;
+    font-family: [[type.headingFont]], sans-serif !important;
+    text-shadow: 0 0 [[fx.glow*8px]] [[topnav.titleGlow/0.35]] !important;
+}
+.switchyard-topbar .switchyard-breadcrumb-home .switchyard-icon,
+.switchyard-topbar .switchyard-breadcrumb-separator,
+.switchyard-topbar .switchyard-breadcrumb-node-icon {
+    color: [[topnav.tab]] !important;
+}
+.switchyard-topbar .switchyard-top-action,
+.switchyard-topbar .switchyard-top-ask-ai,
+.switchyard-topbar .switchyard-user-avatar {
+    background-color: [[header.btnBg/0.6]] !important;
+    box-shadow: inset 0 0 0 1px [[header.btnBorder/0.3]], 0 4px 15px rgba(0, 0, 0, 0.25) !important;
+    color: [[header.icon]] !important;
+    transition: background-color [[fx.speed*0.3s]] ease, box-shadow [[fx.speed*0.3s]] ease, color [[fx.speed*0.3s]] ease !important;
+}
+.switchyard-topbar .switchyard-top-action .switchyard-icon,
+.switchyard-topbar .switchyard-top-ask-ai-label,
+.switchyard-topbar .switchyard-top-ai-mark {
+    color: [[header.icon]] !important;
+}
+.switchyard-topbar .switchyard-top-action:hover,
+.switchyard-topbar .switchyard-top-ask-ai:hover,
+.switchyard-topbar .switchyard-user-avatar:hover {
+    background-color: [[header.hoverBg/0.25]] !important;
+    box-shadow: inset 0 0 0 1px [[header.hoverBorder/0.6]], 0 0 [[fx.glow*15px]] [[header.hoverBorder/0.35]] !important;
+    color: [[header.hoverIcon]] !important;
+}
+.switchyard-topbar .switchyard-top-action:hover .switchyard-icon,
+.switchyard-topbar .switchyard-top-ask-ai:hover .switchyard-top-ask-ai-label {
+    color: [[header.hoverIcon]] !important;
+}
+.switchyard-topbar .switchyard-live-dot {
+    background-color: [[header.hoverIcon]] !important;
+}
+
+/* 6. Profile (account) menu, including the Ultimate Customizer item */
+.switchyard-account-menu {
+    background: [[dropdown.bg/dropdown.opacity]] !important;
+    backdrop-filter: blur([[fx.blur*20px]]) !important;
+    -webkit-backdrop-filter: blur([[fx.blur*20px]]) !important;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 0 1px [[dropdown.border/0.4]], 0 0 25px [[dropdown.item/0.15]] !important;
+    border-radius: [[dropdown.radius]] !important;
+}
+.switchyard-account-menu [class*="account-menu__copy"] strong {
+    color: [[dropdown.name]] !important;
+}
+.switchyard-account-menu [class*="account-menu__copy"] small {
+    color: [[dropdown.email]] !important;
+}
+.switchyard-account-menu [class*="account-menu__avatar"] {
+    background: [[dropdown.item/0.15]] !important;
+    color: [[dropdown.item]] !important;
+}
+.switchyard-account-menu [class*="account-menu__action"] {
+    color: [[dropdown.item]] !important;
+    transition: color [[fx.speed*0.3s]] ease, background-color [[fx.speed*0.3s]] ease, text-shadow [[fx.speed*0.3s]] ease !important;
+}
+.switchyard-account-menu [class*="account-menu__action"]:hover,
+.switchyard-account-menu [class*="account-menu__action"]:focus-visible {
+    background-color: [[dropdown.itemHoverBg/0.1]] !important;
+    color: [[dropdown.itemHover]] !important;
+    text-shadow: 0 0 [[fx.glow*10px]] [[dropdown.itemHover/0.5]] !important;
+}
+.switchyard-account-menu [class*="account-menu__divider"] {
+    background-color: [[dropdown.border/0.15]] !important;
+    border-color: [[dropdown.border/0.15]] !important;
+}
+
+/* 7. Accounts directory (switch sub-account) */
+.switchyard-accounts-directory .switchyard-directory-name,
+.switchyard-accounts-directory .switchyard-directory-agency-name {
+    color: [[switcher.title]] !important;
+}
+.switchyard-accounts-directory .switchyard-directory-search-input,
+.switchyard-accounts-directory .switchyard-directory-search-input input {
+    background-color: [[switcher.searchBg]] !important;
+    color: [[switcher.searchText]] !important;
+}
+.switchyard-accounts-directory .switchyard-directory-row:hover .switchyard-directory-name {
+    color: [[switcher.accent]] !important;
+}

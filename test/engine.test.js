@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const E = require('../shared/theme-engine');
 const R = require('../shared/registry');
+const GUARD = E.GUARD;
 
 const tpl = fs.readFileSync(path.join(__dirname, '..', 'server', 'assets', 'theme.template.css'), 'utf8');
 const compile = (cfg) => { const unknown = []; const css = E.compile(tpl, cfg, { unknown }); assert.deepStrictEqual(unknown, []); return css; };
@@ -101,7 +102,7 @@ test('switches, sections and extras', () => {
   assert.ok(!css.includes('LIGHT THEME - BUSINESS SETTINGS'), 'dark mode drops light sections');
   assert.ok(!css.includes('lds-ring div:nth-child'), 'loader section off');
   assert.ok(css.includes('url("https://cdn.example.com/bg.jpg")'));
-  assert.ok(css.includes('.hl_login--header{position:absolute!important'));
+  assert.ok(css.includes('.hl_login--header' + GUARD + '{position:absolute!important'), 'classic rules are guarded');
   assert.ok(css.includes('#irvex-network-canvas{display:none!important}'));
   assert.ok(css.includes('.irvex-ripple-dynamic{display:none!important}'));
   assert.ok(css.includes('background-image:linear-gradient(180deg,#000414,#001e3c)'));
@@ -109,4 +110,48 @@ test('switches, sections and extras', () => {
   assert.ok(css.includes('a[id="sb_dashboard"]{order:10!important}'));
   assert.ok(css.includes('[id^="sb_"][id$=".custom"]{order:20!important}'));
   assert.ok(css.trim().endsWith('.mine{color:red}'));
+  // New navigation: same sidebar settings, written for the switchyard rows
+  assert.ok(css.includes('body:has(.sidebar-v2-location) #sidebar-v2 .switchyard-customizable-section > .switchyard-managed-row:has(> [id="sb_dashboard"]){order:10!important}'));
+  assert.ok(css.includes('.switchyard-managed-row:has(> [id="sb_reporting"]){display:none!important}'));
+  assert.ok(css.includes('.switchyard-sidebar{background-image:linear-gradient(180deg,#000414,#001e3c)'));
+});
+
+test('classic rules never reach the new navigation; the new one is themed separately', () => {
+  const { guardCss } = require('../shared/theme-engine');
+  // Selector lists, pseudo-elements, @media nesting, keyframes, comments and strings
+  const out = guardCss('/* note, with } brace */\n.a,.b>p::before{content:"x,{y}"}\n@media (min-width:1px){.c:hover{color:red}}\n@keyframes k{from{opacity:0}50%{opacity:.5}to{opacity:1}}\n#irvex-x,.uc-y{display:none}\n.switchyard-nav-label{color:red}');
+  assert.ok(out.includes('.a' + GUARD + ',.b>p' + GUARD + '::before{content:"x,{y}"}'));
+  assert.ok(out.includes('@media (min-width:1px){.c:hover' + GUARD + '{color:red}'));
+  assert.ok(out.includes('@keyframes k{from{opacity:0}50%{opacity:.5}to{opacity:1}}'));
+  assert.ok(out.includes('#irvex-x,.uc-y{display:none}'), 'own elements are not guarded');
+  assert.ok(out.includes('.switchyard-nav-label{color:red}'), 'switchyard selectors are not guarded');
+
+  const css = compile({});
+  // Every master rule body is guarded: no bare .hr-wrapper-container rule left
+  assert.ok(!/(^|[,}\s]).hr-wrapper-container(\s[a-z0-9]+)?[{,]/m.test(css));
+  // The new navigation is themed, and that section can be switched off
+  assert.ok(css.includes('.switchyard-account-menu [class*="account-menu__action"]'));
+  assert.ok(css.includes('.switchyard-nav-item .switchyard-nav-label'));
+  assert.ok(!compile({ sections: { switchyard: false } }).includes('.switchyard-account-menu'));
+});
+
+test('panels: sanitized, compiled after the theme, and boosted', () => {
+  const cfg = E.sanitize({ panels: [
+    { sel: '.switchyard-topbar', name: 'Top bar', bg: '#112233', bgA: 0.8, text: '#FFFFFF', glow: '#00e5ff', radius: 12, shadow: 'soft', blur: 10 },
+    { sel: 'a{}', bg: '#000000' },                 // bad selector: dropped
+    { sel: '.x', bg: 'red', shadow: 'huge', bw: 99 }, // bad values dropped / clamped
+    { sel: '.off', bg: '#ffffff', off: true }
+  ] });
+  assert.strictEqual(cfg.panels.length, 3);
+  assert.deepStrictEqual(cfg.panels[1], { sel: '.x', bw: 8 });
+  assert.strictEqual(cfg.panels[0].text, '#ffffff');
+  const css = compile(cfg);
+  const rule = ':is(.switchyard-topbar):not(#uc-p1):not(#uc-p2){background-color:rgba(17, 34, 51, 0.8)!important;color:#ffffff!important;border-radius:12px!important;';
+  assert.ok(css.includes(rule));
+  assert.ok(css.includes('backdrop-filter:blur(10px)!important'));
+  assert.ok(css.indexOf('/* ---- panels ---- */') > css.indexOf('/* ---- settings ---- */'));
+  assert.ok(!css.includes(':is(.off)'), 'paused panels are skipped');
+  assert.ok(!css.includes(':is(.x)'), 'a panel without styles adds no rule');
+  // Too many panels are cut
+  assert.strictEqual(E.sanitize({ panels: Array.from({ length: 60 }, (_, i) => ({ sel: '.p' + i })) }).panels.length, E.MAX_PANELS);
 });

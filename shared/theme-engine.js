@@ -19,6 +19,19 @@
   const TOKENS = R.TOKENS;
   const NAV = '#sidebar-v2 nav[aria-label="header"]';
 
+  /* ---------------- layouts ----------------
+     HighLevel ships two app chromes:
+       classic     .hl_header + #sidebar-v2 nav[aria-label="header"]
+       switchyard  the new navigation (body.switchyard-owns-chrome, .switchyard-*)
+     The master CSS was written for the classic chrome. Its generic rules
+     (e.g. .hr-wrapper-container, which also wraps the whole new navigation)
+     must never reach the switchyard chrome, so every master rule gets a
+     zero-specificity guard that excludes it. The switchyard chrome is themed
+     by its own section, which only paints (colors, fonts, glows). */
+  const CHROME = '[class*="switchyard-"]:not(body,html)';
+  const GUARD = ':where(:not(' + CHROME + ',' + CHROME + ' *))';
+  const SY = '.switchyard-shell #sidebar-v2,.switchyard-sidebar';
+
   const DEFAULTS = {
     v: 2,
     theme: 'irvex',
@@ -29,8 +42,35 @@
       location: { order: [], names: {}, hidden: [] }
     },
     hideSelectors: [],
+    panels: [],          // point-and-click styles: [{ sel, name, bg, text, ... }] (see PANEL_FIELDS)
     customCss: ''
   };
+
+  /* Panels: any element on the CRM page (picked in the editor, or a detected
+     panel such as the sidebar or the account menu) with its own colors and
+     effects. Empty color = leave as is. */
+  const PANEL_FIELDS = {
+    name: { type: 'text', max: 60, def: '' },
+    sel: { type: 'sel', def: '' },
+    off: { type: 'bool', def: false },
+    bg: { type: 'color', def: '' },
+    bgA: { type: 'num', min: 0, max: 1, step: 0.05, def: 1 },
+    bg2: { type: 'color', def: '' },
+    angle: { type: 'num', min: 0, max: 360, step: 5, def: 135 },
+    text: { type: 'color', def: '' },
+    inner: { type: 'bool', def: true },
+    font: { type: 'font', def: '' },
+    border: { type: 'color', def: '' },
+    bw: { type: 'num', min: 0, max: 8, step: 1, def: 1 },
+    radius: { type: 'num', min: -1, max: 48, step: 1, def: -1 },
+    shadow: { type: 'select', options: ['', 'soft', 'medium', 'strong'], def: '' },
+    glow: { type: 'color', def: '' },
+    glowSize: { type: 'num', min: 0, max: 60, step: 1, def: 18 },
+    blur: { type: 'num', min: 0, max: 40, step: 1, def: 0 },
+    hoverBg: { type: 'color', def: '' }
+  };
+  const PANEL_SHADOWS = { soft: '0 4px 14px rgba(0, 0, 0, 0.25)', medium: '0 12px 32px rgba(0, 0, 0, 0.4)', strong: '0 24px 60px rgba(0, 0, 0, 0.6)' };
+  const MAX_PANELS = 40;
 
   /* ---------------- helpers ---------------- */
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -77,6 +117,30 @@
     return out;
   }
 
+  function cleanSelector(v) {
+    if (typeof v !== 'string') return '';
+    const s = v.replace(/[\u0000-\u001f]/g, ' ').trim();
+    return s && s.length <= 400 && !SELECTOR_BAD.test(s) ? s : '';
+  }
+  // Only fields that differ from their default are kept, so a panel stays small.
+  function cleanPanel(p) {
+    if (!isObj(p)) return null;
+    const sel = cleanSelector(p.sel);
+    if (!sel) return null;
+    const out = { sel };
+    Object.keys(PANEL_FIELDS).forEach((k) => {
+      if (k === 'sel' || !Object.prototype.hasOwnProperty.call(p, k)) return;
+      const f = PANEL_FIELDS[k];
+      let v;
+      if (f.type === 'color') v = p[k] === '' ? '' : (isHex(p[k]) ? p[k].toLowerCase() : undefined);
+      else if (f.type === 'select') v = f.options.indexOf(p[k]) !== -1 ? p[k] : undefined;
+      else if (f.type === 'font') v = typeof p[k] === 'string' && (p[k] === '' || FONT_RE.test(p[k].trim())) ? p[k].trim() : undefined;
+      else v = cleanValue(f, p[k]);
+      if (v !== undefined && v !== f.def) out[k] = v;
+    });
+    return out;
+  }
+
   // Never trust a config: it ends up inside CSS and inside a <script>.
   function sanitize(input) {
     const src = isObj(input) ? input : {};
@@ -101,6 +165,7 @@
         .filter((s) => typeof s === 'string' && s.trim() && s.length <= 200 && !SELECTOR_BAD.test(s))
         .map((s) => s.trim()).slice(0, 40);
     }
+    if (Array.isArray(src.panels)) out.panels = src.panels.map(cleanPanel).filter(Boolean).slice(0, MAX_PANELS);
     if (typeof src.customCss === 'string') out.customCss = src.customCss.replace(/</g, '').slice(0, 30000);
 
     const sb = isObj(src.sidebar) ? src.sidebar : {};
@@ -191,6 +256,83 @@
     });
   }
 
+  /* ---------------- chrome guard ----------------
+     Rewrites every rule's selectors so they cannot match the switchyard
+     chrome. Handles comments, strings, nested @media/@supports/@container/
+     @layer blocks; leaves @keyframes, @font-face, @import as they are.
+     Selectors that target our own elements or name the switchyard on
+     purpose are left alone. */
+  function scanTo(css, i, stops) {
+    // Index of the first char in `stops` at depth 0 outside strings/comments, or css.length.
+    let depth = 0;
+    while (i < css.length) {
+      const c = css[i];
+      if (c === '/' && css[i + 1] === '*') { const e = css.indexOf('*/', i + 2); i = e < 0 ? css.length : e + 2; continue; }
+      if (c === '"' || c === "'") { i++; while (i < css.length && css[i] !== c) { if (css[i] === '\\') i++; i++; } i++; continue; }
+      if (depth === 0 && stops.indexOf(c) !== -1) return i;
+      if (c === '(' || c === '[') depth++;
+      else if ((c === ')' || c === ']') && depth > 0) depth--;
+      i++;
+    }
+    return i;
+  }
+  function blockEnd(css, open) {
+    // css[open] === '{'  ->  index of its matching '}'
+    let depth = 0, i = open;
+    while (i < css.length) {
+      const c = css[i];
+      if (c === '/' && css[i + 1] === '*') { const e = css.indexOf('*/', i + 2); i = e < 0 ? css.length : e + 2; continue; }
+      if (c === '"' || c === "'") { i++; while (i < css.length && css[i] !== c) { if (css[i] === '\\') i++; i++; } i++; continue; }
+      if (c === '{') depth++;
+      else if (c === '}') { depth--; if (depth === 0) return i; }
+      i++;
+    }
+    return css.length;
+  }
+  const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
+  const OWN = /irvex|\buc-|switchyard/i;
+  function guardSelector(s) {
+    s = s.trim();
+    if (!s || OWN.test(s)) return s;
+    // Insert before a trailing pseudo-element (::before, ::-webkit-x, legacy :before / :after).
+    const m = s.match(/(::?(?:before|after|first-line|first-letter|placeholder|selection|marker|backdrop|-webkit-[\w-]+|-moz-[\w-]+)(?:\([^)]*\))?)$/i);
+    if (m) return s.slice(0, s.length - m[1].length) + GUARD + m[1];
+    return s + GUARD;
+  }
+  function guardList(prelude) {
+    const parts = [];
+    let i = 0;
+    while (i <= prelude.length) {
+      const j = scanTo(prelude, i, ',');
+      parts.push(guardSelector(prelude.slice(i, j)));
+      i = j + 1;
+    }
+    return parts.filter(Boolean).join(',');
+  }
+  function guardCss(css) {
+    let out = '', i = 0;
+    while (i < css.length) {
+      const j = scanTo(css, i, '{;}');
+      if (j >= css.length) { out += css.slice(i); break; }
+      const prelude = stripComments(css.slice(i, j)).trim();
+      if (css[j] === ';' || css[j] === '}') { out += css.slice(i, j + 1); i = j + 1; continue; }
+      const end = blockEnd(css, j);
+      const inner = css.slice(j + 1, end);
+      if (prelude.charAt(0) === '@') {
+        out += /^@(media|supports|container|layer|document|scope)\b/i.test(prelude)
+          ? prelude + '{' + guardCss(inner) + '}'
+          : prelude + '{' + inner + '}';
+      } else if (/^(from|to|\d[\d.]*%)(\s*,\s*(from|to|\d[\d.]*%))*$/i.test(prelude)) {
+        out += prelude + '{' + inner + '}';
+      } else {
+        out += guardList(prelude) + '{' + inner + '}';
+      }
+      out += '\n';
+      i = end + 1;
+    }
+    return out;
+  }
+
   function sel(k) {
     return k.indexOf('*.') === 0 ? '[id^="sb_"][id$=".' + cssEsc(k.slice(2)) + '"]' : '[id="' + cssEsc(k) + '"]';
   }
@@ -200,14 +342,25 @@
     ['agency', 'location'].forEach((view) => {
       const sb = cfg.sidebar[view];
       if (!sb) return;
+      // Classic chrome: the links are direct children of the nav.
       const scope = '.sidebar-v2-' + view + ' ' + NAV;
+      // New chrome: each top-level link or group sits in its own row.
+      const sy = 'body:has(.sidebar-v2-' + view + ') #sidebar-v2 .switchyard-customizable-section';
+      const row = (k) => sy + ' > .switchyard-managed-row:has(> ' + sel(k) + ')';
       if (sb.order && sb.order.length) {
         css += scope + '{display:flex!important;flex-direction:column!important}\n';
         css += scope + ' > *{order:1000}\n';
         css += scope + ' > .divider{display:none!important}\n';
         sb.order.forEach((k, i) => { css += scope + ' > a' + sel(k) + '{order:' + ((i + 1) * 10) + '!important}\n'; });
+        css += sy + '{display:flex!important;flex-direction:column!important}\n';
+        css += sy + ' > *{order:1000}\n';
+        sb.order.forEach((k, i) => { css += row(k) + '{order:' + ((i + 1) * 10) + '!important}\n'; });
       }
-      (sb.hidden || []).forEach((k) => { css += scope + ' > a' + sel(k) + '{display:none!important}\n'; });
+      (sb.hidden || []).forEach((k) => {
+        css += scope + ' > a' + sel(k) + '{display:none!important}\n';
+        css += row(k) + '{display:none!important}\n';
+        css += 'body:has(.sidebar-v2-' + view + ') .switchyard-flyout ' + sel(k) + '{display:none!important}\n';
+      });
     });
     (cfg.hideSelectors || []).forEach((s) => { css += s + '{display:none!important}\n'; });
     return css;
@@ -253,6 +406,58 @@
     return c.join('\n') + '\n';
   }
 
+  /* Panel rules. `:is(sel)` keeps a selector list together; the two :not(#id)
+     add (2,0,0) specificity so a picked panel beats the theme's own rules. */
+  const BOOST = ':not(#uc-p1):not(#uc-p2)';
+  function panelsCss(cfg) {
+    let css = '';
+    (cfg.panels || []).forEach((p) => {
+      if (p.off) return;
+      const v = (k) => (Object.prototype.hasOwnProperty.call(p, k) ? p[k] : PANEL_FIELDS[k].def);
+      const S = ':is(' + p.sel + ')' + BOOST;
+      const d = [];
+      const a = v('bgA');
+      if (v('bg')) d.push('background-color:' + (a < 1 ? rgba(v('bg'), fmtNum(a)) : v('bg')) + '!important');
+      if (v('bg') && v('bg2')) {
+        d.push('background-image:linear-gradient(' + fmtNum(v('angle')) + 'deg,' + rgba(v('bg'), fmtNum(a)) + ',' + rgba(v('bg2'), fmtNum(a)) + ')!important');
+      }
+      if (v('text')) d.push('color:' + v('text') + '!important');
+      if (v('font')) d.push("font-family:'" + v('font') + "',sans-serif!important");
+      if (v('border')) {
+        d.push('border-color:' + v('border') + '!important');
+        if (v('bw') > 0) d.push('border-width:' + fmtNum(v('bw')) + 'px!important;border-style:solid!important');
+      }
+      if (v('radius') >= 0) d.push('border-radius:' + fmtNum(v('radius')) + 'px!important');
+      const sh = [];
+      if (v('shadow')) sh.push(PANEL_SHADOWS[v('shadow')]);
+      if (v('glow') && v('glowSize') > 0) sh.push('0 0 ' + fmtNum(v('glowSize')) + 'px ' + rgba(v('glow'), 0.55));
+      if (sh.length) d.push('box-shadow:' + sh.join(',') + '!important');
+      if (v('blur') > 0) d.push('backdrop-filter:blur(' + fmtNum(v('blur')) + 'px)!important;-webkit-backdrop-filter:blur(' + fmtNum(v('blur')) + 'px)!important');
+      if (d.length) css += S + '{' + d.join(';') + '}\n';
+      if (v('text') && v('inner')) {
+        css += S + ' :where(*):not(input,textarea,select,option,[class*="badge"]){color:' + v('text') + '!important}\n';
+        if (v('glow') && v('glowSize') > 0) css += S + ' :where(*){text-shadow:0 0 ' + fmtNum(v('glowSize') / 3) + 'px ' + rgba(v('glow'), 0.35) + '!important}\n';
+      }
+      if (v('hoverBg')) css += S + ':hover{background-color:' + rgba(v('hoverBg'), fmtNum(Math.max(a, 0.6))) + '!important}\n';
+    });
+    return css ? '\n/* ---- panels ---- */\n' + css : '';
+  }
+
+  // Behaviour switches for the new (switchyard) chrome. Paint only, never layout.
+  function switchyardExtras(r) {
+    const c = [];
+    if (r['sidebar.bgStyle'] === 'gradient') c.push(SY + '{background-image:linear-gradient(' + r['sidebar.angle'] + 'deg,' + r['sidebar.bg'] + ',' + r['sidebar.bg2'] + ')!important}');
+    if (r['sidebar.edge']) c.push(SY + '{box-shadow:inset -1px 0 0 ' + rgba(r['sidebar.edgeColor'], 0.6) + ',4px 0 24px ' + rgba(r['sidebar.edgeColor'], 0.18) + '!important}');
+    if (r['nav.activeBg']) {
+      c.push('#sidebar-v2 .switchyard-nav-item[aria-current="page"],#sidebar-v2 .switchyard-nav-item.router-link-exact-active,.switchyard-flyout .switchyard-nav-item[aria-current="page"]{background:' +
+        rgba(r['nav.active'], 0.12) + '!important;border-radius:' + fmtNum(8 * r['fx.radius']) + 'px!important;box-shadow:inset 3px 0 0 ' + r['nav.active'] + '!important}');
+    }
+    if (r['header.btnRadius'] > 0) {
+      c.push('.switchyard-topbar .switchyard-top-action,.switchyard-topbar .switchyard-top-ask-ai,.switchyard-topbar .switchyard-user-avatar{border-radius:' + r['header.btnRadius'] + 'px!important}');
+    }
+    return c.length ? c.join('\n') + '\n' : '';
+  }
+
   function fontImport(r) {
     const fams = [r['type.font'], r['type.headingFont']]
       .filter((f, i, a) => f && a.indexOf(f) === i && R.SYSTEM_FONTS.indexOf(f) === -1);
@@ -269,9 +474,15 @@
     const off = Object.assign({}, cfg.sections);
     if (r['content.mode'] === 'dark') { off.contentLight = false; off.contentLightText = false; }
     const unknown = [];
-    const body = sections(template).filter((s) => off[s.id] !== false).map((s) => fill(s.css, r, unknown)).join('');
+    // Master sections target the classic chrome: guard them away from the new one.
+    // The 'switchyard' section is written for the new chrome and is used as is.
+    const body = sections(template).filter((s) => off[s.id] !== false).map((s) => {
+      const css = fill(s.css, r, unknown);
+      return s.id === 'switchyard' ? css : guardCss(css);
+    }).join('');
     if (opts && opts.unknown) opts.unknown.push.apply(opts.unknown, unknown);
-    return fontImport(r) + body + '\n/* ---- settings ---- */\n' + extrasCss(r) + sidebarCss(cfg) +
+    return fontImport(r) + body + '\n/* ---- settings ---- */\n' + guardCss(extrasCss(r)) +
+      (off.switchyard !== false ? switchyardExtras(r) : '') + sidebarCss(cfg) + panelsCss(cfg) +
       (cfg.customCss ? '\n/* ---- custom CSS ---- */\n' + cfg.customCss + '\n' : '');
   }
 
@@ -288,7 +499,7 @@
   }
 
   return {
-    R, TOKENS, DEFAULTS, NAV, FONTS: R.FONTS,
+    R, TOKENS, DEFAULTS, NAV, GUARD, guardCss, FONTS: R.FONTS, PANEL_FIELDS, MAX_PANELS, cleanPanel, panelsCss,
     clone, isHex, hexToRgb, rgbToHex, rgba,
     sanitize, resolve, compile, applyTheme, sections, sidebarCss
   };
