@@ -128,38 +128,85 @@
      built from that action (same element type, classes and Vue scope
      attributes), so it looks native in the classic dropdown, in the new
      account menu and in any future design. */
-  const SIGN_OUT = /^\s*(sign|log)\s*-?\s*out\s*$/i;
+  const SIGN_OUT = /^\s*(sign|log)\s*-?\s*(out|off)\s*$/i;
+  // Most specific first. Index 0 is the classic dropdown, which stays in the DOM while closed;
+  // every other menu only counts while it is shown (popovers are teleported to <body>).
   const MENU_SELECTORS = [
     '.hl_header--dropdown .dropdown-menu',
     '.switchyard-account-menu',
     '[role="menu"]',
+    '.hr-dropdown-menu, .n-dropdown-menu, .hr-dropdown, .n-dropdown',
+    '.hr-popover, .n-popover, .v-binder-follower-content',
     '.dropdown-menu.show',
-    '[class*="account-menu"]',
-    '[class*="user-menu"]',
-    '[class*="profile-menu"]'
+    '[class*="account-menu"], [class*="user-menu"], [class*="profile-menu"], [class*="dropdown-menu"], [class*="popover"]'
   ];
+  // What a clickable menu row looks like in the designs we know (and most UI kits).
+  const OPTION = 'a, button, li, [role="menuitem"], [role="option"], [data-dropdown-option], [class*="option"], [class*="dropdown-item"], [class*="menu-item"], [class*="menu__item"], [class*="action"]';
+  const ICONISH = 'svg, i, img, [class*="icon"], [aria-hidden="true"]';
   function isVisible(el) {
     if (!el || !el.isConnected) return false;
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return false;
     const s = getComputedStyle(el);
-    return s.visibility !== 'hidden' && s.display !== 'none';
+    return s.visibility !== 'hidden' && s.display !== 'none' && s.opacity !== '0';
   }
+  // Visible text of an element, ignoring icon glyphs (e.g. a material "logout" ligature).
+  function textOf(el) {
+    let t = '';
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      const ic = n.parentElement && n.parentElement.closest(ICONISH);
+      if (ic && ic !== el && el.contains(ic)) continue;
+      t += n.nodeValue;
+    }
+    return t;
+  }
+  // The Sign out row: the text node that says "Sign out", climbed up to the outermost
+  // option-like element that still holds nothing but that text.
   function findSignOut(menu) {
-    return Array.from(menu.querySelectorAll('a, button, [role="menuitem"]'))
-      .find((el) => el.id !== 'irvex-uc-menu-item' && SIGN_OUT.test(el.textContent || ''));
+    const w = document.createTreeWalker(menu, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      if (!SIGN_OUT.test(n.nodeValue || '')) continue;
+      const leaf = n.parentElement;
+      if (!leaf || leaf.closest('#irvex-uc-menu-item')) continue;
+      let opt = null;
+      let row = leaf;
+      for (let el = leaf; el && el !== menu; el = el.parentElement) {
+        if (!SIGN_OUT.test(textOf(el))) break;
+        row = el;
+        if (el.matches(OPTION)) opt = el;
+      }
+      return opt || row;
+    }
+    return null;
   }
+  let menuHintUntil = 0;
   function findAccountMenu() {
+    const seen = new Set();
     for (let i = 0; i < MENU_SELECTORS.length; i++) {
       const menus = document.querySelectorAll(MENU_SELECTORS[i]);
       for (let j = 0; j < menus.length; j++) {
         const menu = menus[j];
-        const signout = findSignOut(menu);
-        if (!signout) continue;
-        // The classic dropdown stays in the DOM while closed; others only count when shown.
+        if (seen.has(menu) || menu.closest('#irvex-uc-host')) continue;
+        seen.add(menu);
         const classic = i === 0;
         if (!classic && !isVisible(menu)) continue;
+        const signout = findSignOut(menu);
+        if (!signout) continue;
         return { menu, signout, kind: classic ? 'classic' : (menu.classList.contains('switchyard-account-menu') ? 'switchyard' : 'generic') };
+      }
+    }
+    // Unknown design: any overlay teleported to <body> that holds a Sign out action.
+    // Only right after a profile/avatar click, so the whole page is not scanned all the time.
+    if (Date.now() > menuHintUntil) return null;
+    const roots = document.body ? Array.from(document.body.children) : [];
+    for (let k = 0; k < roots.length; k++) {
+      const root = roots[k];
+      if (root.id === 'irvex-uc-host' || root.id === 'app' || !isVisible(root)) continue;
+      const signout = findSignOut(root);
+      if (signout && isVisible(signout)) {
+        const menu = signout.closest('[role="menu"], [class*="menu"], [class*="dropdown"], [class*="popover"]') || root;
+        return { menu, signout, kind: 'generic' };
       }
     }
     return null;
@@ -185,28 +232,57 @@
     item.appendChild(document.createTextNode(label));
     return item;
   }
+  const PALETTE_SVG = '<path d="M12 22a10 10 0 1 1 10-10c0 2.2-1.8 3.5-3.6 3.5H16a2 2 0 0 0-1.5 3.3A2 2 0 0 1 13 22z"/>' +
+    '<circle cx="7.5" cy="10.5" r="1"/><circle cx="10.5" cy="6.5" r="1"/><circle cx="15.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/>';
+  const STATE_CLASS = /(^|[-_])(sign-?out|log-?out|danger|destructive|critical|error|pending|active|selected|hover|focus(ed)?)([-_]|$)/i;
+  /* Our item is a deep copy of the Sign out row (same tags, classes, Vue scope
+     attributes and inner wrappers), so it looks native in any menu. A copy has
+     no event handlers; ids, links, test ids and state classes are stripped,
+     the label is swapped and the icon becomes a palette. */
   function buildNativeItem(signout, label) {
-    const tag = signout.tagName === 'A' ? 'a' : 'button';
-    const item = document.createElement(tag);
-    Array.from(signout.attributes).forEach((a) => {
-      // Scoped-style markers (data-v-xxxx) and menu semantics; never ids, handlers or hrefs.
-      if (/^data-v-/.test(a.name) || a.name === 'role' || a.name === 'tabindex') item.setAttribute(a.name, a.value);
+    const item = signout.cloneNode(true);
+    [item].concat(Array.from(item.querySelectorAll('*'))).forEach((el) => {
+      ['id', 'href', 'data-testid', 'aria-label', 'aria-selected', 'data-dropdown-option', 'for', 'name', 'value'].forEach((a) => el.removeAttribute(a));
+      Array.from(el.attributes).forEach((a) => { if (/^on/i.test(a.name)) el.removeAttribute(a.name); });
+      if (el.classList && el.classList.length) {
+        Array.from(el.classList).forEach((c) => { if (STATE_CLASS.test(c)) el.classList.remove(c); });
+      }
     });
-    item.className = Array.from(signout.classList)
-      .filter((c) => !/(^|[-_])(sign-?out|log-?out|danger|destructive|critical|error)([-_]|$)/i.test(c)).join(' ');
-    if (tag === 'button') item.type = 'button'; else item.href = '#';
-    if (!item.getAttribute('role') && signout.closest('[role="menu"]')) item.setAttribute('role', 'menuitem');
-    // Copy the inner wrapper if the action keeps its text in one (e.g. <span>Sign out</span>).
-    const inner = signout.firstElementChild;
-    if (inner && signout.children.length === 1 && SIGN_OUT.test(inner.textContent || '')) {
-      const wrap = inner.cloneNode(false);
-      wrap.removeAttribute('id');
-      wrap.textContent = label;
-      item.appendChild(wrap);
-    } else {
-      item.textContent = label;
+    // Label: replace the "Sign out" text node.
+    let replaced = false;
+    const w = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      if (!replaced && SIGN_OUT.test(n.nodeValue || '')) { n.nodeValue = n.nodeValue.replace(/\S.*\S|\S/, label); replaced = true; }
     }
+    if (!replaced) item.textContent = label;
+    // Icon: same size and classes, palette drawing.
+    const svg = item.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', svg.getAttribute('stroke-width') || '2');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.innerHTML = PALETTE_SVG;
+    } else {
+      const i = item.querySelector('i');
+      if (i && /\bfa[srlb]?\b|fa-/.test(i.className)) i.className = 'fas fa-palette';
+      else if (i && i.textContent.trim()) i.textContent = 'palette'; // icon-font ligature
+    }
+    if (item.tagName === 'A') item.setAttribute('href', '#');
+    if (item.tagName === 'BUTTON') item.type = 'button';
+    if (!item.getAttribute('role') && signout.closest('[role="menu"]')) item.setAttribute('role', 'menuitem');
+    item.style.cursor = 'pointer';
     return item;
+  }
+  // Hover feedback for menus whose hover state is set by script (zero specificity: native styles win).
+  function ensureItemCss() {
+    if (document.getElementById('uc-menu-item-css')) return;
+    const st = document.createElement('style');
+    st.id = 'uc-menu-item-css';
+    st.textContent = ':where(#irvex-uc-menu-item):hover{background-color:rgba(127,127,127,.12)}';
+    (document.head || document.documentElement).appendChild(st);
   }
   function ensureMenuItem() {
     const found = findAccountMenu();
@@ -231,6 +307,7 @@
       found.signout.before(item, hr);
       return;
     }
+    ensureItemCss();
     item = buildNativeItem(found.signout, label);
     item.id = 'irvex-uc-menu-item';
     item.dataset.ucLabel = label;
@@ -258,7 +335,7 @@
     }
     e.preventDefault();
     e.stopPropagation();
-    const menu = t.closest('[role="menu"], .dropdown-menu, .switchyard-account-menu');
+    const menu = t.closest('[role="menu"], .dropdown-menu, .switchyard-account-menu, .hr-dropdown-menu, .n-dropdown-menu, .hr-popover, .n-popover, [class*="dropdown"], [class*="popover"]');
     if (!(menu && menu.classList.contains('dropdown-menu'))) closeAccountMenu(menu);
     if (UC.mode === 'setup' || !UC.editorToken()) {
       openUI('connect');
@@ -270,7 +347,7 @@
   /* ------------------------------------------------------------------
      4. PANEL SHELL
   ------------------------------------------------------------------ */
-  const TABS = [['themes', 'Themes']].concat(registry.GROUPS.map((g) => [g.id, g.label])).concat([['menu', 'Menu'], ['advanced', 'Advanced']]);
+  const TABS = [['themes', 'Themes']].concat(registry.GROUPS.map((g) => [g.id, g.label])).concat([['panels', 'Panels'], ['menu', 'Menu'], ['advanced', 'Advanced']]);
 
   const UI_CSS = `
 :host{all:initial}
@@ -349,6 +426,13 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
 .toast{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);background:var(--gold);color:var(--navy);font-weight:700;font-size:12px;padding:8px 14px;border-radius:99px;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;max-width:90%;overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1}
 .empty{color:#7fa3b5;text-align:center;padding:30px 0}
+.plist{display:flex;flex-direction:column;gap:6px;margin:6px 0 4px}
+.pdet{display:flex;align-items:center;gap:8px;padding:7px 9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px}
+.pdet .names b{display:block;font-size:12.5px}.pdet.none{opacity:.55}
+.sw{width:16px;height:16px;border-radius:5px;border:1px solid rgba(255,255,255,.25);flex:none}
+.now{font-size:10px;color:#6f93a4;font-family:ui-monospace,monospace}
+.pcount{font-size:10.5px;color:#7fa3b5;margin:4px 0 8px}
+.pcount.zero{color:#ffb86b}
 `;
 
   let host = null;
@@ -421,6 +505,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       return;
     }
     clearInterval(connectTimer);
+    if (picking) picking.stop(null);
     if (saveTimer) {
       clearTimeout(saveTimer);
       saveTimer = 0;
@@ -555,6 +640,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     if (query) body.innerHTML = renderSearch();
     else if (tab === 'themes') body.innerHTML = renderThemes();
     else if (tab === 'menu') body.innerHTML = renderMenu();
+    else if (tab === 'panels') body.innerHTML = renderPanels();
     else if (tab === 'advanced') body.innerHTML = renderAdvanced();
     else body.innerHTML = renderGroup(tab);
     body.scrollTop = st;
@@ -671,6 +757,257 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       '<button class="btn sm" data-act="resetAll">Reset everything</button></div>' +
       '<h4>This browser</h4><div class="btns"><button class="btn sm" data-act="forget">Disconnect this browser</button></div>' +
       '<p class="note">Licensed to ' + escapeHtml(UC.license.name || UC.license.companyId) + '. <a href="' + escapeHtml(UC.api('/docs')) + '" target="_blank" rel="noopener">Documentation</a> · <a href="' + escapeHtml(UC.api('/')) + '" target="_blank" rel="noopener">Support</a></p>';
+  }
+
+  /* ---------- panels: read, pick and style any part of the page ---------- */
+  const PF = customizerEngine.PANEL_FIELDS;
+  // Panels HighLevel shows in its classic and new designs (only those on screen are listed first).
+  const KNOWN_PANELS = [
+    ['Sidebar', '#sidebar-v2'],
+    ['Top bar', '.switchyard-topbar'],
+    ['Header (classic)', '.hl_header'],
+    ['Account menu', '.switchyard-account-menu'],
+    ['Group flyouts (e.g. Settings)', '.switchyard-flyout'],
+    ['Accounts directory', '.switchyard-accounts-directory'],
+    ['Account rail', '.switchyard-account-rail'],
+    ['Page area', '.hl_wrapper'],
+    ['Cards', '.hl-card, .card'],
+    ['Dropdown menus', '.hr-dropdown-menu, .n-dropdown-menu, .dropdown-menu'],
+    ['Pop-ups & modals', '.hr-modal, .n-modal, .n-dialog, .modal-content'],
+    ['Tables', '.hr-data-table, .n-data-table'],
+    ['Text inputs', '.hr-input, .n-input, .hl-text-input, .form-control'],
+    ['Primary buttons', '.hr-button--primary-type, .n-button--primary-type, .btn-primary, .hl-btn']
+  ];
+  const ours = (el) => !!(el && el.closest && el.closest('#irvex-uc-host, #uc-pick-box, #uc-pick-tip, #uc-locate'));
+  function matches(sel) {
+    try { return Array.from(document.querySelectorAll(sel)).filter((el) => !ours(el)); } catch (e) { return null; }
+  }
+  // Computed color -> { hex, a }   (rgb(), rgba() and the space syntax)
+  function parseColor(c) {
+    const m = String(c || '').match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?/i);
+    if (!m) return null;
+    let a = m[4] === undefined ? 1 : parseFloat(m[4]) / (/%$/.test(m[4]) ? 100 : 1);
+    return { hex: customizerEngine.rgbToHex(+m[1], +m[2], +m[3]), a: Math.round(a * 100) / 100 };
+  }
+  // What the panel looks like right now (first match on the page).
+  function readPanel(sel) {
+    const els = matches(sel);
+    if (!els || !els.length) return null;
+    const cs = getComputedStyle(els[0]);
+    const bg = parseColor(cs.backgroundColor);
+    const blur = (cs.backdropFilter || cs.webkitBackdropFilter || '').match(/blur\(([\d.]+)px\)/);
+    return {
+      count: els.length,
+      bg: bg && bg.a > 0 ? bg.hex : '', bgA: bg ? bg.a : 1,
+      text: (parseColor(cs.color) || {}).hex || '',
+      border: parseFloat(cs.borderTopWidth) > 0 ? (parseColor(cs.borderTopColor) || {}).hex || '' : '',
+      bw: Math.round(parseFloat(cs.borderTopWidth) || 0),
+      radius: Math.round(parseFloat(cs.borderTopLeftRadius) || 0),
+      blur: blur ? Math.round(parseFloat(blur[1])) : 0,
+      font: (cs.fontFamily || '').split(',')[0].replace(/["']/g, '').trim()
+    };
+  }
+
+  /* Stable selector for a picked element: ids, test ids and design-system
+     classes; never generated ids (hr-button-v-122), state classes or Vue hashes. */
+  const SAFE = /^[A-Za-z_][\w-]*$/;
+  const STATEY = /(^|[-_])(active|show|open|opened|hover|focus|focused|selected|pending|disabled|visible|hidden|collapsed|expanded|enter|leave|from|to|transition|is|has)([-_]|$)|^(v-|router-link)|\d{2,}/i;
+  const stableId = (id) => !!id && SAFE.test(id) && !/\d{2,}|-v-\d|^(hr|n|el|v)-/.test(id);
+  function partOf(el) {
+    if (stableId(el.id)) return '#' + el.id;
+    const tag = el.tagName.toLowerCase();
+    for (const a of ['data-testid', 'data-switchyard-top-slot', 'aria-label']) {
+      const v = el.getAttribute(a);
+      if (v && /^[\w .:-]{1,60}$/.test(v) && !/\d{2,}/.test(v)) return tag + '[' + a + '="' + v + '"]';
+    }
+    const cls = Array.from(el.classList).filter((c) => SAFE.test(c) && !STATEY.test(c) && c.length <= 48);
+    const pick = cls.filter((c) => /switchyard|hl_|hl-/.test(c)).concat(cls.filter((c) => !/switchyard|hl_|hl-/.test(c))).slice(0, 2);
+    return tag + pick.map((c) => '.' + c).join('');
+  }
+  function selectorFor(el) {
+    const parts = [];
+    let sel = '';
+    for (let n = el, depth = 0; n && n !== document.body && n !== document.documentElement && depth < 5; n = n.parentElement, depth++) {
+      const p = partOf(n);
+      if (depth > 0 && /^(div|span|section)$/.test(p)) continue; // plain wrappers add nothing
+      parts.unshift(p);
+      sel = parts.join(' ');
+      const m = matches(sel);
+      if (m && m.length === 1) return sel;
+      if (p.charAt(0) === '#') break;
+    }
+    return sel || partOf(el);
+  }
+  function nameFor(el, sel) {
+    const known = KNOWN_PANELS.find((k) => { try { return el.matches(k[1]); } catch (e) { return false; } });
+    if (known) return known[0];
+    const label = el.getAttribute('aria-label') || el.getAttribute('title');
+    if (label && label.length <= 40) return label;
+    const c = Array.from(el.classList).find((x) => SAFE.test(x) && !STATEY.test(x));
+    const base = c ? c.replace(/^(switchyard|hl|hr|n)[-_]+/, '').replace(/[-_]+/g, ' ') : el.tagName.toLowerCase();
+    return (base.charAt(0).toUpperCase() + base.slice(1)).slice(0, 40) || sel.slice(0, 40);
+  }
+  let openPanel = -1;
+  const simpler = {}; // panel index -> a broader selector suggested at pick time (not saved)
+  function addPanel(sel, name, alt) {
+    const at = draft.panels.findIndex((p) => p.sel === sel);
+    if (at !== -1) { openPanel = at; tab = 'panels'; render(); return; }
+    if (draft.panels.length >= customizerEngine.MAX_PANELS) { toast('Up to ' + customizerEngine.MAX_PANELS + ' panels'); return; }
+    draft.panels.push({ sel, name: name || '' });
+    openPanel = draft.panels.length - 1;
+    if (alt && alt !== sel) simpler[openPanel] = alt;
+    tab = 'panels';
+    query = '';
+    changed(true);
+  }
+
+  function panelField(i, k, read) {
+    const f = PF[k];
+    const p = draft.panels[i];
+    const has = Object.prototype.hasOwnProperty.call(p, k) && p[k] !== '';
+    const val = has ? p[k] : f.def;
+    const attrs = ' data-p="' + i + '" data-f="' + k + '"';
+    let input;
+    if (f.type === 'color') {
+      const shown = has ? val : ((read && read[k]) || '#000000');
+      input = '<input type="color"' + attrs + ' value="' + escapeHtml(shown) + '"><input type="text" class="hex" data-phex="' + i + ':' + k + '" value="' + escapeHtml(has ? val : '') + '" placeholder="' + escapeHtml((read && read[k]) || 'none') + '" maxlength="7">';
+    } else if (f.type === 'num') {
+      input = '<input type="range"' + attrs + ' min="' + f.min + '" max="' + f.max + '" step="' + f.step + '" value="' + val + '"><input type="number" class="num"' + attrs + ' min="' + f.min + '" max="' + f.max + '" step="' + f.step + '" value="' + val + '">';
+    } else if (f.type === 'bool') {
+      input = '<input type="checkbox"' + attrs + (val ? ' checked' : '') + '>';
+    } else if (f.type === 'select') {
+      input = '<select' + attrs + '>' + f.options.map((o) => '<option value="' + o + '"' + (o === val ? ' selected' : '') + '>' + (o ? o.charAt(0).toUpperCase() + o.slice(1) : 'None') + '</option>').join('') + '</select>';
+    } else {
+      input = '<input type="text" class="txt"' + attrs + (f.type === 'font' ? ' list="uc-fonts"' : '') + ' value="' + escapeHtml(val) + '" placeholder="' + escapeHtml(f.type === 'font' ? ((read && read.font) || 'Theme font') : '') + '">';
+    }
+    return input;
+  }
+  const PANEL_ROWS = [
+    ['Colors', [['bg', 'Background'], ['bgA', 'Background opacity'], ['bg2', 'Gradient to', 'Leave empty for a solid color'], ['angle', 'Gradient angle'],
+      ['text', 'Text & icons'], ['inner', 'Also color everything inside'], ['hoverBg', 'Hover background']]],
+    ['Border & shape', [['border', 'Border color'], ['bw', 'Border width (px)'], ['radius', 'Corner radius (px)', '-1 keeps the original']]],
+    ['Effects', [['glow', 'Glow color'], ['glowSize', 'Glow size'], ['shadow', 'Shadow'], ['blur', 'Glass blur (px)', 'Works on see-through backgrounds']]],
+    ['Font', [['font', 'Font family']]]
+  ];
+  function renderPanelEditor(i) {
+    const p = draft.panels[i];
+    const read = readPanel(p.sel);
+    const count = read ? read.count : 0;
+    const now = (k) => (read && read[k] !== undefined && read[k] !== '' ? '<span class="now">now ' + escapeHtml(String(read[k])) + '</span>' : '');
+    let html = '<div class="ctl"><div class="lbl"><b>Name</b></div><div class="in">' + panelField(i, 'name') + '</div></div>' +
+      '<div class="ctl"><div class="lbl"><b>Selector</b><small>Which elements this styles (CSS selector)</small></div><div class="in"><input type="text" class="txt" data-psel="' + i + '" value="' + escapeHtml(p.sel) + '" spellcheck="false"></div></div>' +
+      '<div class="pcount' + (count ? '' : ' zero') + '">' + (count ? 'Matches ' + count + ' element' + (count > 1 ? 's' : '') + ' on this screen.' : 'Not on this screen right now (it may only show when opened). Saved styles still apply when it appears.') + '</div>' +
+      '<div class="btns"><button class="btn sm" data-plocate="' + i + '">Show on page</button>' +
+      (simpler[i] ? '<button class="btn sm" data-psimple="' + i + '">Apply to all similar</button>' : '') +
+      '<button class="btn sm" data-pclear="' + i + '">Clear styles</button><button class="btn sm" data-pdel="' + i + '">Remove</button>' +
+      '<label class="note" style="margin:0;display:flex;align-items:center;gap:6px">' + panelField(i, 'off') + ' Paused</label></div>';
+    PANEL_ROWS.forEach((g) => {
+      html += '<h4>' + g[0] + '</h4>' + g[1].map((row) => {
+        const k = row[0];
+        const set = Object.prototype.hasOwnProperty.call(p, k);
+        return '<div class="ctl' + (set ? ' set' : '') + '"><div class="lbl"><b>' + escapeHtml(row[1]) + '</b>' +
+          '<small>' + (row[2] ? escapeHtml(row[2]) + ' ' : '') + now(k) + '</small></div><div class="in">' + panelField(i, k, read) +
+          '<button class="rs" data-preset="' + i + ':' + k + '" title="Back to the original">↺</button></div></div>';
+      }).join('');
+    });
+    return html;
+  }
+  function renderPanels() {
+    let html = '<h4>Pick any part of the page</h4><p class="note">Click <b>Pick on page</b>, then click any panel, card, bar, menu or button. Its current colors are read so you can change them, add glow, glass blur, borders and rounded corners. Use ↑ / ↓ while picking to select the parent or child.</p>' +
+      '<div class="btns"><button class="btn pri" data-act="pickPanel">Pick on page</button></div>';
+    if (draft.panels.length) {
+      html += '<h4>Your panels</h4>' + draft.panels.map((p, i) => '<details' + (i === openPanel ? ' open' : '') + ' data-pdet="' + i + '"><summary>' +
+        escapeHtml((p.off ? '⏸ ' : '') + (p.name || p.sel).slice(0, 48)) + '</summary><div class="sec">' + (i === openPanel ? renderPanelEditor(i) : '') + '</div></details>').join('');
+    }
+    const known = KNOWN_PANELS.map((k) => ({ name: k[0], sel: k[1], read: readPanel(k[1]) }))
+      .filter((k) => !draft.panels.some((p) => p.sel === k.sel))
+      .sort((a, b) => (b.read ? 1 : 0) - (a.read ? 1 : 0));
+    html += '<h4>Detected panels (' + (UC.layout === 'switchyard' ? 'new navigation' : UC.layout === 'classic' ? 'classic design' : 'this design') + ')</h4><div class="plist">' +
+      known.map((k) => '<div class="pdet' + (k.read ? '' : ' none') + '"><span class="sw" style="background:' + escapeHtml((k.read && k.read.bg) || 'transparent') + '"></span>' +
+        '<div class="names"><b>' + escapeHtml(k.name) + '</b><small>' + (k.read ? k.read.count + ' on screen · ' + escapeHtml(k.read.bg || 'transparent') + ' / ' + escapeHtml(k.read.text) : 'not open right now') + '</small></div>' +
+        '<button class="btn sm" data-pknown="' + escapeHtml(k.sel) + '" data-pname="' + escapeHtml(k.name) + '">Customize</button></div>').join('') + '</div>';
+    return html + fontList();
+  }
+
+  /* Picker: hover highlights, click picks, ↑/↓ walk parent/child, Esc cancels. */
+  let picking = null;
+  function startPicker() {
+    if (picking || !host) return;
+    const accent = customizerEngine.resolve(draft).primary;
+    const box = document.createElement('div');
+    box.id = 'uc-pick-box';
+    box.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483646;border:2px solid ' + accent + ';background:' + customizerEngine.rgba(accent, 0.12) + ';border-radius:4px;transition:all .06s;display:none';
+    const tip = document.createElement('div');
+    tip.id = 'uc-pick-tip';
+    tip.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#04101f;color:#e6f7ff;border:1px solid ' + accent +
+      ';border-radius:99px;padding:8px 16px;font:600 12px Inter,system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.5);max-width:92vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none';
+    document.documentElement.appendChild(box);
+    document.documentElement.appendChild(tip);
+    host.style.display = 'none';
+    let cur = null;
+    const down = [];
+    const show = (el) => {
+      cur = el;
+      const r = el.getBoundingClientRect();
+      Object.assign(box.style, { display: 'block', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+      tip.textContent = nameFor(el, '') + ' — ' + partOf(el) + '   ·   click to pick · ↑ parent · ↓ child · Esc cancel';
+    };
+    tip.textContent = 'Hover a panel and click to pick it · Esc cancels';
+    const move = (e) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      if (!el || ours(el) || el === cur) return;
+      down.length = 0;
+      show(el);
+    };
+    const block = (e) => { if (ours(e.target)) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); };
+    const click = (e) => { block(e); if (cur) stop(cur); };
+    const key = (e) => {
+      if (e.key === 'Escape') { block(e); stop(null); return; }
+      if (!cur) return;
+      if (e.key === 'ArrowUp' && cur.parentElement && cur.parentElement !== document.documentElement && cur.parentElement !== document.body) { block(e); down.push(cur); show(cur.parentElement); }
+      else if (e.key === 'ArrowDown' && down.length) { block(e); show(down.pop()); }
+      else if (e.key === 'Enter') { block(e); stop(cur); }
+    };
+    const scroll = () => { if (cur) show(cur); };
+    const evs = [['mousemove', move], ['pointerdown', block], ['mousedown', block], ['pointerup', block], ['mouseup', block], ['click', click], ['dblclick', block], ['contextmenu', block], ['keydown', key], ['scroll', scroll]];
+    evs.forEach((x) => window.addEventListener(x[0], x[1], true));
+    function stop(el) {
+      evs.forEach((x) => window.removeEventListener(x[0], x[1], true));
+      box.remove();
+      tip.remove();
+      picking = null;
+      if (!host) return;
+      host.style.display = '';
+      if (!el) return;
+      const sel = selectorFor(el);
+      addPanel(sel, nameFor(el, sel), partOf(el));
+      toast('Picked: ' + nameFor(el, sel));
+    }
+    picking = { stop };
+  }
+  function locate(sel) {
+    const old = document.getElementById('uc-locate');
+    if (old) old.remove();
+    const els = (matches(sel) || []).slice(0, 30);
+    if (!els.length) { toast('Not on this screen right now'); return; }
+    const wrap = document.createElement('div');
+    wrap.id = 'uc-locate';
+    wrap.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483646';
+    els.forEach((el) => {
+      const r = el.getBoundingClientRect();
+      const b = document.createElement('div');
+      b.style.cssText = 'position:fixed;border:2px dashed #ffd700;border-radius:4px;box-shadow:0 0 0 9999px rgba(0,0,0,.25);left:' + r.left + 'px;top:' + r.top + 'px;width:' + r.width + 'px;height:' + r.height + 'px';
+      wrap.appendChild(b);
+    });
+    document.documentElement.appendChild(wrap);
+    setTimeout(() => wrap.remove(), 1600);
+  }
+  // Writes one panel field; '' or the default removes it (back to the original look).
+  function setPanel(i, k, v) {
+    const p = draft.panels[i];
+    if (!p) return;
+    if (v === '' || v === PF[k].def) delete p[k]; else p[k] = v;
+    draft = customizerEngine.sanitize(draft);
   }
 
   /* ---------- applying changes ---------- */
@@ -903,6 +1240,34 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       step(dn.dataset.down, 1);
       return;
     }
+    const pk = t.closest('[data-pknown]');
+    if (pk) { addPanel(pk.dataset.pknown, pk.dataset.pname); return; }
+    const pd = t.closest('summary') && t.closest('[data-pdet]');
+    if (pd) { e.preventDefault(); const i = +pd.dataset.pdet; openPanel = openPanel === i ? -1 : i; render(); return; }
+    const pr = t.closest('[data-preset]');
+    if (pr) { const x = pr.dataset.preset.split(':'); setPanel(+x[0], x[1], ''); changed(true); return; }
+    if (t.closest('[data-plocate]')) { locate(draft.panels[+t.closest('[data-plocate]').dataset.plocate].sel); return; }
+    const ps = t.closest('[data-psimple]');
+    if (ps) {
+      const i = +ps.dataset.psimple;
+      draft.panels[i].sel = simpler[i];
+      delete simpler[i];
+      draft = customizerEngine.sanitize(draft);
+      changed(true);
+      return;
+    }
+    const pc = t.closest('[data-pclear]');
+    if (pc) { const i = +pc.dataset.pclear; const q = draft.panels[i]; draft.panels[i] = { sel: q.sel, name: q.name }; draft = customizerEngine.sanitize(draft); changed(true); return; }
+    const pdl = t.closest('[data-pdel]');
+    if (pdl) {
+      const i = +pdl.dataset.pdel;
+      if (!confirm('Remove "' + (draft.panels[i].name || draft.panels[i].sel) + '" and its styles?')) return;
+      draft.panels.splice(i, 1);
+      Object.keys(simpler).forEach((k) => delete simpler[k]);
+      openPanel = -1;
+      changed(true);
+      return;
+    }
     const a = t.closest('[data-act]');
     if (!a) {
       return;
@@ -913,6 +1278,9 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
         break;
       case 'connect':
         startConnect();
+        break;
+      case 'pickPanel':
+        startPicker();
         break;
       case 'cancelConnect':
         clearInterval(connectTimer);
@@ -1008,6 +1376,26 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       }
       return;
     }
+    if (t.dataset.f) {
+      const i = +t.dataset.p, k = t.dataset.f, f = PF[k];
+      if (f.type === 'color') {
+        setPanel(i, k, t.value);
+        const hx = shadow.querySelector('[data-phex="' + i + ':' + k + '"]');
+        if (hx) hx.value = t.value;
+      } else if (f.type === 'num') {
+        if (t.value === '') return;
+        setPanel(i, k, Number(t.value));
+        t.closest('.in').querySelectorAll('[data-f]').forEach((x) => { if (x !== t) x.value = t.value; });
+      } else if (k === 'name') {
+        setPanel(i, k, t.value.trim());
+      } else {
+        return;
+      }
+      const ctl = t.closest('.ctl');
+      if (ctl) ctl.classList.add('set');
+      changed(false);
+      return;
+    }
     if (t.dataset.nm) {
       const sb = draft.sidebar[currentView()];
       const v = t.value.trim();
@@ -1022,6 +1410,36 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
 
   function onChange(e) {
     const t = e.target;
+    if (t.dataset.phex) {
+      const x = t.dataset.phex.split(':');
+      let v = t.value.trim();
+      if (v && v[0] !== '#') v = '#' + v;
+      if (v && !customizerEngine.isHex(v)) { toast('Use a color like #1a2b3c'); render(); return; }
+      setPanel(+x[0], x[1], v.toLowerCase());
+      changed(true);
+      return;
+    }
+    if (t.dataset.psel) {
+      const i = +t.dataset.psel, v = t.value.trim();
+      if (!v || matches(v) === null || !customizerEngine.cleanPanel({ sel: v })) { toast('That selector is not valid'); render(); return; }
+      draft.panels[i].sel = v;
+      delete simpler[i];
+      draft = customizerEngine.sanitize(draft);
+      changed(true);
+      return;
+    }
+    if (t.dataset.f) {
+      const i = +t.dataset.p, k = t.dataset.f, f = PF[k];
+      if (f.type === 'bool') setPanel(i, k, t.checked);
+      else if (f.type === 'select') setPanel(i, k, t.value);
+      else if (f.type === 'font') {
+        const before = JSON.stringify(draft.panels[i][k]);
+        setPanel(i, k, t.value.trim());
+        if (t.value.trim() && JSON.stringify(draft.panels[i][k]) === before) toast('Letters, numbers and spaces only');
+      } else return;
+      changed(true);
+      return;
+    }
     if (t.dataset.hex) {
       let v = t.value.trim();
       if (v[0] !== '#') {
@@ -1100,13 +1518,22 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   }
   // The profile menu is rendered on demand (and re-rendered by the CRM),
   // so add the item as soon as a menu appears, with a slow timer as a backstop.
-  let menuRaf = 0;
+  let menuTimer = 0;
   function syncMenu() {
-    menuRaf = 0;
+    menuTimer = 0;
     if (UC.killed) return;
     try { ensureMenuItem(); } catch (e) { /* never break the CRM */ }
   }
-  const menuObs = new MutationObserver(() => { if (!menuRaf) menuRaf = requestAnimationFrame(syncMenu); });
+  // Throttled: the CRM mutates the DOM constantly; one check per ~100ms is plenty.
+  const menuObs = new MutationObserver(() => { if (!menuTimer) menuTimer = setTimeout(syncMenu, 100); });
+  // Opening the profile menu (any design): check right away and while its popover animates in.
+  document.addEventListener('click', (e) => {
+    if (UC.killed || !e.target.closest) return;
+    if (e.target.closest('.switchyard-user-avatar, [data-switchyard-top-slot="topnav.user"], [aria-label="Account"], .hl_header--avatar, .hl_header--dropdown, [class*="avatar"]')) {
+      menuHintUntil = Date.now() + 15000;
+      [30, 150, 400, 900].forEach((ms) => setTimeout(syncMenu, ms));
+    }
+  }, true);
   const startMenuObs = () => menuObs.observe(document.body || document.documentElement, { childList: true, subtree: true });
   if (document.body) startMenuObs(); else document.addEventListener('DOMContentLoaded', startMenuObs);
   UC.onKill(() => menuObs.disconnect());
@@ -1123,6 +1550,21 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     open: function openCustomizer() {
       const initialView = UC.mode === 'setup' || !UC.editorToken() ? 'connect' : 'editor';
       openUI(initialView);
+    },
+    // Troubleshooting: open the profile menu, then run IRVEX_UC.debug() in the console.
+    debug: function debugCustomizer() {
+      const f = findAccountMenu();
+      const email = UC.currentEmail(f && f.menu);
+      const user = UC.users[email];
+      return {
+        mode: UC.mode, layout: UC.layout, company: UC.company, killed: UC.killed,
+        menuFound: !!f, menuKind: f ? f.kind : null,
+        menu: f ? f.menu.tagName.toLowerCase() + '.' + Array.from(f.menu.classList).join('.') : null,
+        signOut: f ? f.signout.outerHTML.slice(0, 400) : null,
+        email: email || null, usersSeen: Object.keys(UC.users).length,
+        roles: user ? user.roles : null, admin: isAdmin(f && f.menu),
+        itemInDom: !!document.getElementById('irvex-uc-menu-item')
+      };
     }
   };
 })();

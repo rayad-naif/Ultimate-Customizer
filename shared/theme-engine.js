@@ -42,8 +42,35 @@
       location: { order: [], names: {}, hidden: [] }
     },
     hideSelectors: [],
+    panels: [],          // point-and-click styles: [{ sel, name, bg, text, ... }] (see PANEL_FIELDS)
     customCss: ''
   };
+
+  /* Panels: any element on the CRM page (picked in the editor, or a detected
+     panel such as the sidebar or the account menu) with its own colors and
+     effects. Empty color = leave as is. */
+  const PANEL_FIELDS = {
+    name: { type: 'text', max: 60, def: '' },
+    sel: { type: 'sel', def: '' },
+    off: { type: 'bool', def: false },
+    bg: { type: 'color', def: '' },
+    bgA: { type: 'num', min: 0, max: 1, step: 0.05, def: 1 },
+    bg2: { type: 'color', def: '' },
+    angle: { type: 'num', min: 0, max: 360, step: 5, def: 135 },
+    text: { type: 'color', def: '' },
+    inner: { type: 'bool', def: true },
+    font: { type: 'font', def: '' },
+    border: { type: 'color', def: '' },
+    bw: { type: 'num', min: 0, max: 8, step: 1, def: 1 },
+    radius: { type: 'num', min: -1, max: 48, step: 1, def: -1 },
+    shadow: { type: 'select', options: ['', 'soft', 'medium', 'strong'], def: '' },
+    glow: { type: 'color', def: '' },
+    glowSize: { type: 'num', min: 0, max: 60, step: 1, def: 18 },
+    blur: { type: 'num', min: 0, max: 40, step: 1, def: 0 },
+    hoverBg: { type: 'color', def: '' }
+  };
+  const PANEL_SHADOWS = { soft: '0 4px 14px rgba(0, 0, 0, 0.25)', medium: '0 12px 32px rgba(0, 0, 0, 0.4)', strong: '0 24px 60px rgba(0, 0, 0, 0.6)' };
+  const MAX_PANELS = 40;
 
   /* ---------------- helpers ---------------- */
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -90,6 +117,30 @@
     return out;
   }
 
+  function cleanSelector(v) {
+    if (typeof v !== 'string') return '';
+    const s = v.replace(/[\u0000-\u001f]/g, ' ').trim();
+    return s && s.length <= 400 && !SELECTOR_BAD.test(s) ? s : '';
+  }
+  // Only fields that differ from their default are kept, so a panel stays small.
+  function cleanPanel(p) {
+    if (!isObj(p)) return null;
+    const sel = cleanSelector(p.sel);
+    if (!sel) return null;
+    const out = { sel };
+    Object.keys(PANEL_FIELDS).forEach((k) => {
+      if (k === 'sel' || !Object.prototype.hasOwnProperty.call(p, k)) return;
+      const f = PANEL_FIELDS[k];
+      let v;
+      if (f.type === 'color') v = p[k] === '' ? '' : (isHex(p[k]) ? p[k].toLowerCase() : undefined);
+      else if (f.type === 'select') v = f.options.indexOf(p[k]) !== -1 ? p[k] : undefined;
+      else if (f.type === 'font') v = typeof p[k] === 'string' && (p[k] === '' || FONT_RE.test(p[k].trim())) ? p[k].trim() : undefined;
+      else v = cleanValue(f, p[k]);
+      if (v !== undefined && v !== f.def) out[k] = v;
+    });
+    return out;
+  }
+
   // Never trust a config: it ends up inside CSS and inside a <script>.
   function sanitize(input) {
     const src = isObj(input) ? input : {};
@@ -114,6 +165,7 @@
         .filter((s) => typeof s === 'string' && s.trim() && s.length <= 200 && !SELECTOR_BAD.test(s))
         .map((s) => s.trim()).slice(0, 40);
     }
+    if (Array.isArray(src.panels)) out.panels = src.panels.map(cleanPanel).filter(Boolean).slice(0, MAX_PANELS);
     if (typeof src.customCss === 'string') out.customCss = src.customCss.replace(/</g, '').slice(0, 30000);
 
     const sb = isObj(src.sidebar) ? src.sidebar : {};
@@ -354,6 +406,43 @@
     return c.join('\n') + '\n';
   }
 
+  /* Panel rules. `:is(sel)` keeps a selector list together; the two :not(#id)
+     add (2,0,0) specificity so a picked panel beats the theme's own rules. */
+  const BOOST = ':not(#uc-p1):not(#uc-p2)';
+  function panelsCss(cfg) {
+    let css = '';
+    (cfg.panels || []).forEach((p) => {
+      if (p.off) return;
+      const v = (k) => (Object.prototype.hasOwnProperty.call(p, k) ? p[k] : PANEL_FIELDS[k].def);
+      const S = ':is(' + p.sel + ')' + BOOST;
+      const d = [];
+      const a = v('bgA');
+      if (v('bg')) d.push('background-color:' + (a < 1 ? rgba(v('bg'), fmtNum(a)) : v('bg')) + '!important');
+      if (v('bg') && v('bg2')) {
+        d.push('background-image:linear-gradient(' + fmtNum(v('angle')) + 'deg,' + rgba(v('bg'), fmtNum(a)) + ',' + rgba(v('bg2'), fmtNum(a)) + ')!important');
+      }
+      if (v('text')) d.push('color:' + v('text') + '!important');
+      if (v('font')) d.push("font-family:'" + v('font') + "',sans-serif!important");
+      if (v('border')) {
+        d.push('border-color:' + v('border') + '!important');
+        if (v('bw') > 0) d.push('border-width:' + fmtNum(v('bw')) + 'px!important;border-style:solid!important');
+      }
+      if (v('radius') >= 0) d.push('border-radius:' + fmtNum(v('radius')) + 'px!important');
+      const sh = [];
+      if (v('shadow')) sh.push(PANEL_SHADOWS[v('shadow')]);
+      if (v('glow') && v('glowSize') > 0) sh.push('0 0 ' + fmtNum(v('glowSize')) + 'px ' + rgba(v('glow'), 0.55));
+      if (sh.length) d.push('box-shadow:' + sh.join(',') + '!important');
+      if (v('blur') > 0) d.push('backdrop-filter:blur(' + fmtNum(v('blur')) + 'px)!important;-webkit-backdrop-filter:blur(' + fmtNum(v('blur')) + 'px)!important');
+      if (d.length) css += S + '{' + d.join(';') + '}\n';
+      if (v('text') && v('inner')) {
+        css += S + ' :where(*):not(input,textarea,select,option,[class*="badge"]){color:' + v('text') + '!important}\n';
+        if (v('glow') && v('glowSize') > 0) css += S + ' :where(*){text-shadow:0 0 ' + fmtNum(v('glowSize') / 3) + 'px ' + rgba(v('glow'), 0.35) + '!important}\n';
+      }
+      if (v('hoverBg')) css += S + ':hover{background-color:' + rgba(v('hoverBg'), fmtNum(Math.max(a, 0.6))) + '!important}\n';
+    });
+    return css ? '\n/* ---- panels ---- */\n' + css : '';
+  }
+
   // Behaviour switches for the new (switchyard) chrome. Paint only, never layout.
   function switchyardExtras(r) {
     const c = [];
@@ -393,7 +482,7 @@
     }).join('');
     if (opts && opts.unknown) opts.unknown.push.apply(opts.unknown, unknown);
     return fontImport(r) + body + '\n/* ---- settings ---- */\n' + guardCss(extrasCss(r)) +
-      (off.switchyard !== false ? switchyardExtras(r) : '') + sidebarCss(cfg) +
+      (off.switchyard !== false ? switchyardExtras(r) : '') + sidebarCss(cfg) + panelsCss(cfg) +
       (cfg.customCss ? '\n/* ---- custom CSS ---- */\n' + cfg.customCss + '\n' : '');
   }
 
@@ -410,7 +499,7 @@
   }
 
   return {
-    R, TOKENS, DEFAULTS, NAV, GUARD, guardCss, FONTS: R.FONTS,
+    R, TOKENS, DEFAULTS, NAV, GUARD, guardCss, FONTS: R.FONTS, PANEL_FIELDS, MAX_PANELS, cleanPanel, panelsCss,
     clone, isHex, hexToRgb, rgbToHex, rgba,
     sanitize, resolve, compile, applyTheme, sections, sidebarCss
   };
