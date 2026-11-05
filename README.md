@@ -78,6 +78,16 @@ HighLevel has two app designs: the classic header/sidebar and the new navigation
 - **Profile menu in the new design:** the avatar button opens a teleported `hr-dropdown` popover whose rows are `div`s, not links. The Sign out row is found by its text (climbing to the row element), and the item is a deep copy of that row with the label swapped and a palette icon. If the menu shows no email, the avatar initials (e.g. "JF") are matched against the users the CRM loaded.
 - **Troubleshooting:** open the profile menu and run `IRVEX_UC.debug()` in the browser console. It reports the layout, which menu and Sign out row were found, the detected email, and whether that user counts as an agency admin.
 
+## Brands (up to 5 per agency)
+
+Agencies that run several white-label brands (one CRM domain per brand) can give each brand its own look. A brand holds a full set of settings: theme, colors, menu, panels, custom CSS and **custom JS**.
+
+- **Same snippets for every brand.** The server picks the brand from the domain that loads the CSS/JS. Each connected domain is assigned to one brand; unassigned domains use the main brand.
+- **App page → Brands:** add up to 5 brands (blank or copied from another brand), rename them, delete them (their domains go back to the main brand), and pick each domain's brand under *Connected domains*.
+- **In the CRM editor (Advanced tab):** shows which brand this domain uses, renames it, switches the domain to another brand, or creates a new brand for it. Everything edited there is saved to that domain's brand. If the domain was moved to another brand meanwhile, saving is refused (409) and the editor reloads the right brand.
+- **Custom JS** is served as `/c/<key>/custom.js` for the requesting domain's brand, and loaded once per page after the theme is live, so a mistake in it cannot break the customizer. Changes apply on the next page load.
+- Storage: the main brand stays in `config` / `configVersion`; extra brands are in `brands[]` (`b2`–`b5`); domain assignments are in `hostBrands`. Open tabs poll `v.json?b=<brand>` and switch automatically when their domain changes brand.
+
 ## Panels (point-and-click styling)
 
 The **Panels** tab lists the panels found on the current screen (sidebar, top bar, account menu, flyouts, cards, dropdowns, modals, inputs, buttons…) together with their current colors. **Pick on page** lets you click any element instead (↑ / ↓ select the parent or child, Esc cancels). Each panel can have:

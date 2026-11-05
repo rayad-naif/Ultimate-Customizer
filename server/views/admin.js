@@ -49,7 +49,8 @@ function createAdminViews(L, app) {
       '<dt>Source</dt><dd>' + esc(inst.source) + '</dd><dt>Installed</dt><dd>' + L.fmt(inst.installedAt) + '</dd><dt>Uninstalled</dt><dd>' + L.fmt(inst.uninstalledAt) + '</dd>' +
       '<dt>Installed by user</dt><dd>' + esc(inst.installedBy || '') + '</dd><dt>Token scope</dt><dd>' + esc(inst.scope || '') + '</dd>' +
       '<dt>Last check</dt><dd>' + L.fmt(inst.lastVerifiedAt) + ' ' + esc(inst.lastVerifyResult || '') + '</dd>' +
-      '<dt>Theme</dt><dd>' + esc(inst.config.theme) + ' &middot; v' + esc(inst.configVersion) + ' &middot; ' + Object.keys(inst.config.values).length + ' custom settings</dd></dl>' +
+      '<dt>Theme</dt><dd>' + esc(inst.config.theme) + ' &middot; v' + esc(inst.configVersion) + ' &middot; ' + Object.keys(inst.config.values).length + ' custom settings</dd>' +
+      '<dt>Brands</dt><dd>' + (o.brands || []).map((b) => esc(b.name) + ' (' + esc(b.theme) + ', v' + esc(b.version) + (b.domains.length ? ': ' + b.domains.map(esc).join(', ') : '') + ')').join('<br>') + '</dd></dl>' +
       '<div class="row" style="margin-top:14px">' +
       (inst.pending ? L.postBtn(base + '/approve', 'Approve license', o.csrf, 'pri') : '') +
       (inst.suspended ? L.postBtn(base + '/resume', 'Resume license', o.csrf, 'pri') : L.postBtn(base + '/suspend', 'Suspend license', o.csrf, 'danger', 'Suspend this agency? Their theme turns off on the next page load.')) +
@@ -60,7 +61,7 @@ function createAdminViews(L, app) {
       '<form method="post" action="' + base + '/bind" class="row" style="margin-top:10px">' + L.csrfField(o.csrf) + '<input type="text" name="host" placeholder="app.agency.com" style="max-width:260px" required><button class="btn sm">Connect domain</button></form></div>' +
       '<div class="card"><h2>Blocked attempts</h2><p class="note">Unconnected domains that requested this agency’s files.</p><div class="scroll"><table>' +
       (blocked ? '<tr><th>Domain</th><th>Hits</th><th>First</th><th>Last</th><th></th></tr>' + blocked : '<tr><td class="note">None.</td></tr>') + '</table></div></div></div>' +
-      '<div class="card"><h2>Theme settings (JSON)</h2><textarea id="cfgjson" style="min-height:260px">' + esc(JSON.stringify(inst.config, null, 2)) + '</textarea>' +
+      '<div class="card"><h2>Theme settings of the main brand (JSON)</h2><textarea id="cfgjson" style="min-height:260px">' + esc(JSON.stringify(inst.config, null, 2)) + '</textarea>' +
       '<div class="row" style="margin-top:10px"><button class="btn sm pri" id="savecfg" type="button">Save settings</button><span id="cfgres" class="note" role="status"></span></div></div>' +
       '<div class="grid"><div class="card"><h2>Name &amp; notes</h2><form method="post" action="' + base + '/meta">' + L.csrfField(o.csrf) +
       '<label>Agency name</label><input type="text" name="name" value="' + esc(inst.name) + '">' +

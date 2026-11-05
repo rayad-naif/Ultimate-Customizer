@@ -27,12 +27,21 @@ function createAppViews(L, brand) {
     body += '<div class="card"><h2>Your code</h2><p class="note">Paste these in your CRM under <b>Agency Settings &rarr; Company</b>: the first in <b>Custom CSS</b> (at the top), the second in <b>Custom JS</b>. Then reload your CRM.</p>' +
       (status === 'active' ? snippets(o.baseUrl, inst) : '<p class="note"><b>Your code appears here once your license is active.</b></p>') + '</div>';
 
-    const hosts = inst.boundHosts.map((h) => '<tr><td><b>' + esc(h) + '</b></td><td><small>' + (inst.seenHosts[h] ? 'last used ' + L.fmt(inst.seenHosts[h]) : 'not used yet') + '</small></td><td style="text-align:right">' +
+    const brands = o.brands || [];
+    const brandOf = (h) => (brands.find((b) => b.domains.indexOf(h) !== -1) || brands[0] || { id: 'main' }).id;
+    // Which brand a domain shows (only when there is more than one brand to choose from).
+    const brandPick = (h) => brands.length < 2 ? '' :
+      '<form method="post" action="/app/brands/assign" class="row" style="gap:6px;flex-wrap:nowrap">' + L.csrfField(o.csrf) + T + '<input type="hidden" name="host" value="' + esc(h) + '">' +
+      '<select name="brand" aria-label="Brand for ' + esc(h) + '" onchange="this.form.submit()" style="max-width:180px">' +
+      brands.map((b) => '<option value="' + esc(b.id) + '"' + (b.id === brandOf(h) ? ' selected' : '') + '>' + esc(b.name) + '</option>').join('') + '</select>' +
+      '<noscript><button class="btn sm">Use</button></noscript></form>';
+    const hosts = inst.boundHosts.map((h) => '<tr><td><b>' + esc(h) + '</b></td><td><small>' + (inst.seenHosts[h] ? 'last used ' + L.fmt(inst.seenHosts[h]) : 'not used yet') + '</small></td><td>' + brandPick(h) + '</td><td style="text-align:right">' +
       L.postBtn('/app/domains/remove', 'Remove', o.csrf, 'danger', 'Remove ' + h + '? The theme stops loading there.', '<input type="hidden" name="host" value="' + esc(h) + '">' + T) + '</td></tr>').join('');
     body += '<div class="card"><h2>Connected domains</h2><p class="note">Your theme only loads on these domains. The easiest way to add one: open your CRM there, then use <b>Profile menu &rarr; Connect Ultimate Customizer</b>. You can also add it here.</p>' +
       '<div class="scroll"><table>' + (hosts || '<tr><td class="note">No domains connected yet.</td></tr>') + '</table></div>' +
       '<form method="post" action="/app/domains/add" class="row" style="margin-top:12px">' + L.csrfField(o.csrf) + T +
       '<input type="text" name="host" placeholder="app.youragency.com" style="max-width:320px" required><button class="btn sm">Add domain</button></form></div>';
+    body += brandsCard(o, T);
     if (inst.login) {
   body += '<div class="card"><h2>Sign-in</h2><p class="note">Opening this app outside your CRM needs <b>' + esc(inst.login.email) + '</b> and your password.</p>' +
     '<a class="btn sm" href="/app/setup' + (o.embedToken ? '?t=' + encodeURIComponent(o.embedToken) : '') + '">Change email or password</a></div>';
@@ -49,6 +58,31 @@ function createAppViews(L, brand) {
       L.postBtn('/app/revoke-editors', 'Sign out all editors', o.csrf, '', 'Every browser will need to reconnect before editing. Continue?', T) + '</div></div>';
     return L.layout('My app', body, { customer: true, embed: !!o.embedToken, csrf: o.csrf, flash: o.flash, active: '/app' });
   }
+  /* Up to 5 brands, one per white-label domain. Every brand has its own theme,
+     menu, panels, custom CSS and custom JS; the snippets stay the same. */
+  function brandsCard(o, T) {
+    const brands = o.brands || [];
+    const max = o.maxBrands || 5;
+    const rows = brands.map((b) => '<tr><td style="min-width:200px">' +
+      '<form method="post" action="/app/brands/rename" class="row" style="gap:6px;flex-wrap:nowrap">' + L.csrfField(o.csrf) + T + '<input type="hidden" name="brand" value="' + esc(b.id) + '">' +
+      '<input type="text" name="name" value="' + esc(b.name) + '" maxlength="60" aria-label="Brand name" style="max-width:200px" required><button class="btn sm">Rename</button></form>' +
+      (b.main ? '<small class="note">Main brand: domains without a brand use it.</small>' : '') + '</td>' +
+      '<td><small>' + (b.domains.length ? b.domains.map(esc).join('<br>') : 'no domain yet') + '</small></td>' +
+      '<td><small>' + esc(b.theme) + ' theme &middot; v' + esc(b.version) + (b.hasJs ? ' &middot; custom JS' : '') + '</small></td>' +
+      '<td style="text-align:right">' + (b.main ? '' : L.postBtn('/app/brands/delete', 'Delete', o.csrf, 'danger', 'Delete ' + b.name + ' and its settings? Its domains switch to the main brand.', '<input type="hidden" name="brand" value="' + esc(b.id) + '">' + T)) + '</td></tr>').join('');
+    const create = brands.length >= max ? '<p class="note">You have all ' + max + ' brands.</p>' :
+      '<form method="post" action="/app/brands/create" class="row" style="margin-top:12px">' + L.csrfField(o.csrf) + T +
+      '<input type="text" name="name" placeholder="Brand name, e.g. Acme CRM" maxlength="60" style="max-width:240px" required>' +
+      '<select name="copyFrom" aria-label="Start from" style="max-width:220px"><option value="">Start blank (default theme)</option>' +
+      brands.map((b) => '<option value="' + esc(b.id) + '">Copy settings of ' + esc(b.name) + '</option>').join('') + '</select>' +
+      '<button class="btn sm pri">Add brand</button></form>';
+    return '<div class="card" id="brands"><h2>Brands (' + brands.length + ' of ' + max + ')</h2>' +
+      '<p class="note">Running several white-label brands? Give each its own look: theme, colors, menu, panels, custom CSS and custom JS. ' +
+      'Assign each connected domain to a brand (in <b>Connected domains</b> above). The snippets stay the same for every brand. ' +
+      'Then open the customizer on that domain: whatever you change there is saved to that domain’s brand.</p>' +
+      '<div class="scroll"><table>' + rows + '</table></div>' + create + '</div>';
+  }
+
   function setupPage(o) {
   const T = o.embedToken ? '<input type="hidden" name="t" value="' + esc(o.embedToken) + '">' : '';
   const has = !!o.inst.login;

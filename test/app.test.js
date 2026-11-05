@@ -475,3 +475,83 @@ test('sidebar page inside the CRM signs in with SSO', async (t) => {
   r = await fetch(s.url + '/app/login', form({ body: { email: 'owner@irvex.com', password: 'sidebar reset pass' } }));
   assert.strictEqual(r.headers.get('location'), '/app');
 });
+
+test('brands: up to 5 per agency, each domain shows its own brand', async (t) => {
+  const s = await boot();
+  t.after(s.close);
+  const a = await installAndSignIn(s);
+  const B1 = 'https://app.brand-one.com', B2 = 'https://app.brand-two.com';
+  const tok1 = await connectDomain(s, a, B1);
+  const tok2 = await connectDomain(s, a, B2);
+  const api = (tok, origin, method, body) => fetch(s.url + '/api/brands' + (method === 'GET' ? '?key=' + a.key : ''), {
+    method, headers: Object.assign({ 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, from(origin)),
+    body: body ? JSON.stringify(Object.assign({ key: a.key }, body)) : undefined
+  });
+  const put = (tok, origin, config, brand) => fetch(s.url + '/api/config', {
+    method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, from(origin)),
+    body: JSON.stringify({ key: a.key, config, brand })
+  });
+  const css = async (origin) => (await fetch(s.url + '/c/' + a.key + '/theme.css', { headers: { Referer: origin + '/' } })).text();
+  const js = async (origin) => (await fetch(s.url + '/c/' + a.key + '/customizer.js', { headers: { Referer: origin + '/' } })).text();
+
+  // One brand to start: both domains share it
+  let r = await api(tok1, B1, 'GET');
+  let j = await r.json();
+  assert.deepStrictEqual(j.brands.map((b) => b.id), ['main']);
+  assert.strictEqual(j.max, 5);
+  assert.strictEqual((await api(tok1, 'https://crm.pirate.com', 'GET')).status, 401, 'editor token is bound to its domain');
+
+  // Brand two's editor creates a brand for its domain (copying the current look)
+  assert.strictEqual((await put(tok1, B1, { values: { base: '#111111' } }, 'main')).status, 200);
+  j = await (await api(tok2, B2, 'POST', { action: 'create', name: 'Brand Two', copyFrom: true })).json();
+  assert.strictEqual(j.current, 'b2');
+  assert.deepStrictEqual(j.brands.find((b) => b.id === 'b2').domains, ['app.brand-two.com']);
+  assert.match(await css(B2), /#111111/, 'copied look');
+
+  // Saving from each domain changes only its own brand
+  assert.strictEqual((await put(tok2, B2, { values: { base: '#222222' }, customJs: 'window.__brand = 2;' }, 'b2')).status, 200);
+  assert.match(await css(B1), /#111111/);
+  assert.doesNotMatch(await css(B1), /#222222/);
+  assert.match(await css(B2), /#222222/);
+  assert.match(await js(B2), /"brand":\{"id":"b2","name":"Brand Two"\}/);
+  assert.match(await js(B1), /"brand":\{"id":"main"/);
+  // Custom JS per brand
+  assert.match(await (await fetch(s.url + '/c/' + a.key + '/custom.js', { headers: { Referer: B2 + '/' } })).text(), /window\.__brand = 2;/);
+  assert.doesNotMatch(await (await fetch(s.url + '/c/' + a.key + '/custom.js', { headers: { Referer: B1 + '/' } })).text(), /__brand/);
+  assert.strictEqual((await fetch(s.url + '/c/' + a.key + '/custom.js', { headers: { Referer: 'https://crm.pirate.com/' } })).status, 403);
+
+  // A stale editor (still showing the main brand) cannot overwrite brand two
+  r = await put(tok2, B2, { values: { base: '#999999' } }, 'main');
+  assert.strictEqual(r.status, 409);
+  assert.match(await css(B2), /#222222/);
+
+  // Realtime: a tab on brand two that still has the main brand's version gets brand two
+  let vj = await (await fetch(s.url + '/c/' + a.key + '/v.json?have=99&b=main', { headers: from(B2) })).json();
+  assert.strictEqual(vj.brand.id, 'b2');
+  assert.strictEqual(vj.config.values.base, '#222222');
+  vj = await (await fetch(s.url + '/c/' + a.key + '/v.json?have=99&b=b2', { headers: from(B2) })).json();
+  assert.strictEqual(vj.config, undefined);
+
+  // App page: brands card, domain assignment, rename, limit, delete
+  let page = await (await fetch(s.url + '/app', { headers: { cookie: a.cust } })).text();
+  assert.match(page, /Brands \(2 of 5\)/);
+  assert.match(page, /Brand Two/);
+  const post = (path, body) => fetch(s.url + path, form({ cookie: a.cust, body: Object.assign({ _csrf: a.csrf }, body) }));
+  await post('/app/brands/assign', { host: 'app.brand-one.com', brand: 'b2' });
+  assert.match(await css(B1), /#222222/, 'brand one now shows brand two');
+  await post('/app/brands/assign', { host: 'app.brand-one.com', brand: 'main' });
+  await post('/app/brands/rename', { brand: 'main', name: 'Brand One' });
+  for (const n of ['Three', 'Four', 'Five', 'Six']) await post('/app/brands/create', { name: 'Brand ' + n, copyFrom: '' });
+  const rec = await s.app.locals.store.get(COMPANY);
+  assert.strictEqual(rec.brands.length, 4, 'main + 4 = 5 brands max');
+  assert.strictEqual(rec.brandName, 'Brand One');
+  page = await (await fetch(s.url + '/app', { headers: { cookie: a.cust } })).text();
+  assert.match(page, /You have all 5 brands/);
+  await post('/app/brands/delete', { brand: 'b2' });
+  assert.match(await css(B2), /#111111/, 'deleted brand: its domain falls back to the main brand');
+  assert.match(await js(B2), /"brand":\{"id":"main","name":"Brand One"\}/);
+  // Removing a domain forgets its brand
+  await post('/app/brands/assign', { host: 'app.brand-two.com', brand: 'b3' });
+  await post('/app/domains/remove', { host: 'app.brand-two.com' });
+  assert.strictEqual((await s.app.locals.store.get(COMPANY)).hostBrands['app.brand-two.com'], undefined);
+});
