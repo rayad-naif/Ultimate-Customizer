@@ -95,7 +95,10 @@ The **Panels** tab lists the panels found on the current screen (sidebar, top ba
 - **Colors:** background, opacity, gradient, text & icons (optionally everything inside), hover background
 - **Border & shape:** border color and width, corner radius
 - **Effects:** glow, shadow, glass blur
+- **Spacing:** padding and margin in px, for all sides at once or per side (top/right/bottom/left). Empty keeps the CRM's own spacing; the field shows the current value. Margins can be negative.
 - **Font:** font family
+
+The new navigation's page wrapper (`.hr-wrapper-container`) is listed first under *Detected panels*, so its padding and margin are one click away.
 
 Panels are saved in the config (`panels`, max 40), validated like every other setting, and compiled after the theme with a specificity boost, so they win over the theme's own rules. A panel that is not on screen keeps its styles and applies them whenever it appears.
 
