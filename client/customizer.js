@@ -426,6 +426,10 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
 .toast{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);background:var(--gold);color:var(--navy);font-weight:700;font-size:12px;padding:8px 14px;border-radius:99px;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;max-width:90%;overflow:hidden;text-overflow:ellipsis}
 .toast.show{opacity:1}
 .empty{color:#7fa3b5;text-align:center;padding:30px 0}
+.btag{font-size:10.5px;font-weight:700;color:var(--navy);background:var(--gold);border-radius:99px;padding:3px 9px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+.btag:empty{display:none}
+.brandbox{border:1px solid color-mix(in srgb,var(--gold) 35%,transparent);border-radius:12px;padding:10px 12px;margin-bottom:12px;background:rgba(255,215,0,.04)}
+.brandbox .row{border:0;background:none;padding:4px 0;margin:0}
 .plist{display:flex;flex-direction:column;gap:6px;margin:6px 0 4px}
 .pdet{display:flex;align-items:center;gap:8px;padding:7px 9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px}
 .pdet .names b{display:block;font-size:12.5px}.pdet.none{opacity:.55}
@@ -457,7 +461,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     host.id = 'irvex-uc-host';
     shadow = host.attachShadow({ mode: 'open' });
     shadow.innerHTML = '<style>' + UI_CSS + '</style><div class="wrap"><div class="panel" role="dialog" aria-label="Ultimate Customizer">' +
-      '<header><h3>Ultimate Customizer</h3><span class="status" id="st"></span><button class="x" data-act="close" title="Close">&times;</button></header>' +
+      '<header><h3>Ultimate Customizer</h3><span class="btag" id="btag" title="Brand this domain uses"></span><span class="status" id="st"></span><button class="x" data-act="close" title="Close">&times;</button></header>' +
       '<div id="main" style="display:flex;flex-direction:column;flex:1;min-height:0"></div><div class="toast" id="toast"></div></div></div>';
     document.body.appendChild(host);
     const panel = shadow.querySelector('.panel');
@@ -484,20 +488,75 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     opened = customizerEngine.clone(UC.baked);
     renderShell();
     // Pull the latest saved version in case another admin changed it.
-    fetch(UC.api('/c/' + UC.license.key + '/v.json?have=0'), { credentials: 'omit' })
+    loadBrandConfig(false);
+    loadBrands();
+  }
+
+  /* ---------- brands (one per white-label domain, up to 5) ---------- */
+  let brandInfo = null; // { current, max, brands: [{ id, name, domains }] }
+  function brandTag() {
+    const t = shadow && shadow.getElementById('btag');
+    if (t) t.textContent = brandInfo && brandInfo.brands.length > 1 ? UC.brand.name : '';
+  }
+  // Pull the settings of the brand this domain uses (the latest version, or after a switch).
+  function loadBrandConfig(force) {
+    return fetch(UC.api('/c/' + UC.license.key + '/v.json?have=0&b=' + encodeURIComponent(UC.brand.id)), { credentials: 'omit' })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        if (!j || !j.config || !host || j.v <= UC.version) {
-          return;
-        }
-
+        if (!j || !j.config || !host) return;
+        const moved = j.brand && j.brand.id !== UC.brand.id;
+        if (!force && !moved && j.v <= UC.version) return;
+        if (j.brand) UC.brand = j.brand;
         UC.version = j.v;
         UC.baked = customizerEngine.sanitize(j.config);
         draft = customizerEngine.clone(UC.baked);
         opened = customizerEngine.clone(UC.baked);
         UC.render(draft);
+        brandTag();
         render();
       }).catch(() => {});
+  }
+  function brandApi(method, body) {
+    const url = UC.api('/api/brands') + (method === 'GET' ? '?key=' + encodeURIComponent(UC.license.key) : '');
+    return fetch(url, {
+      method, credentials: 'omit',
+      headers: Object.assign({ Authorization: 'Bearer ' + UC.editorToken() }, body ? { 'Content-Type': 'application/json' } : {}),
+      body: body ? JSON.stringify(Object.assign({ key: UC.license.key }, body)) : undefined
+    }).then((r) => r.json().catch(() => ({})).then((j) => { if (!r.ok) throw new Error(j.error || 'Request failed (' + r.status + ')'); return j; }));
+  }
+  function loadBrands() {
+    brandApi('GET').then((j) => { brandInfo = j; brandTag(); if (tab === 'advanced') render(); }).catch(() => {});
+  }
+  // Switch / create / rename. Unsaved edits are saved to the current brand first.
+  function brandAction(body, done) {
+    const go = () => brandApi('POST', body).then((j) => {
+      brandInfo = j;
+      toast(done);
+      return loadBrandConfig(true);
+    }).catch((e) => toast(e.message));
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; UC.save(draft).then(go, go); } else go();
+  }
+  function renderBrandBox() {
+    const here = escapeHtml(location.hostname);
+    if (!brandInfo) return '<div class="brandbox"><p class="note" style="margin:0">Loading brands…</p></div>';
+    const cur = brandInfo.brands.find((b) => b.id === brandInfo.current) || { name: UC.brand.name };
+    const others = brandInfo.brands.filter((b) => b.id !== brandInfo.current);
+    let h = '<div class="brandbox"><h4 style="margin-top:0">Brand</h4><p class="note" style="margin-top:0"><b>' + here + '</b> uses <b>' + escapeHtml(cur.name) + '</b>. Everything you change here is saved to that brand and shows on every domain that uses it.</p>' +
+      '<div class="ctl"><div class="lbl"><b>Brand name</b></div><div class="in"><input type="text" class="txt" id="brandname" maxlength="60" value="' + escapeHtml(cur.name) + '"></div></div>';
+    if (others.length) {
+      h += '<div class="ctl"><div class="lbl"><b>Use another brand here</b><small>This domain switches to that brand\u2019s look</small></div><div class="in"><select id="brandpick">' +
+        others.map((b) => '<option value="' + escapeHtml(b.id) + '">' + escapeHtml(b.name) + (b.domains.length ? ' (' + escapeHtml(b.domains.join(', ')) + ')' : '') + '</option>').join('') +
+        '</select><button class="btn sm" data-act="brandUse">Switch</button></div></div>';
+    }
+    if (brandInfo.brands.length < brandInfo.max) {
+      h += '<div class="ctl"><div class="lbl"><b>New brand for this domain</b><small>' + brandInfo.brands.length + ' of ' + brandInfo.max + ' brands used</small></div><div class="in" style="flex-wrap:wrap;justify-content:flex-end">' +
+        '<input type="text" class="txt" id="brandnew" maxlength="60" placeholder="e.g. Acme CRM" style="width:150px">' +
+        '<label class="note" style="margin:0;display:flex;gap:4px;align-items:center"><input type="checkbox" id="brandcopy" checked> copy current look</label>' +
+        '<button class="btn sm" data-act="brandCreate">Create</button></div></div>';
+    } else {
+      h += '<p class="note">All ' + brandInfo.max + ' brands are in use. Delete one on the app page to add another.</p>';
+    }
+    return h + '</div>';
   }
 
   function closeUI() {
@@ -749,10 +808,12 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   }
 
   function renderAdvanced() {
-    return '<h4>Theme sections</h4><p class="note">Switch off any part of the theme to keep the CRM’s original look there.</p>' +
+    return renderBrandBox() + '<h4>Theme sections</h4><p class="note">Switch off any part of the theme to keep the CRM’s original look there.</p>' +
       registry.SECTIONS.map((s) => '<div class="ctl"><div class="lbl"><b>' + escapeHtml(s[1]) + '</b></div><div class="in"><input type="checkbox" data-sec="' + s[0] + '"' + (draft.sections[s[0]] === false ? '' : ' checked') + '></div></div>').join('') +
       '<h4>Custom CSS</h4><textarea id="customcss" spellcheck="false" placeholder="/* added after the theme */">' + escapeHtml(draft.customCss) + '</textarea>' +
       '<p class="note">Applied when you click outside the box.</p>' +
+      '<h4>Custom JS</h4><textarea id="customjs" spellcheck="false" placeholder="// runs on every page of this brand, after the theme loads">' + escapeHtml(draft.customJs) + '</textarea>' +
+      '<p class="note">Runs for every user on the domains of this brand. Saved when you click outside the box; takes effect on the next page load. A mistake here never breaks the theme, but test it before relying on it.</p>' +
       '<h4>Backup / restore</h4><div class="btns"><button class="btn sm" data-act="copyJson">Copy settings JSON</button><button class="btn sm" data-act="pasteJson">Restore from JSON…</button>' +
       '<button class="btn sm" data-act="resetAll">Reset everything</button></div>' +
       '<h4>This browser</h4><div class="btns"><button class="btn sm" data-act="forget">Disconnect this browser</button></div>' +
@@ -1068,7 +1129,11 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     })
       .catch((e) => {
         status('Not saved', 'err');
-        if (e.status === 401) {
+        if (e.status === 409) {
+          toast(e.message);
+          loadBrands();
+          loadBrandConfig(true);
+        } else if (e.status === 401) {
           UC.editorToken('');
           if (host) {
             view = 'connect';
@@ -1282,6 +1347,18 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       case 'pickPanel':
         startPicker();
         break;
+      case 'brandUse': {
+        const sel = shadow.getElementById('brandpick');
+        const b = brandInfo && brandInfo.brands.find((x) => x.id === sel.value);
+        if (b && confirm(location.hostname + ' will show "' + b.name + '" instead of "' + UC.brand.name + '". Continue?')) brandAction({ action: 'use', brand: b.id }, 'Now using ' + b.name);
+        break;
+      }
+      case 'brandCreate': {
+        const n = shadow.getElementById('brandnew').value.trim();
+        if (!n) { toast('Give the new brand a name'); return; }
+        brandAction({ action: 'create', name: n, copyFrom: shadow.getElementById('brandcopy').checked }, n + ' created for ' + location.hostname);
+        break;
+      }
       case 'cancelConnect':
         clearInterval(connectTimer);
         renderConnect('start');
@@ -1500,6 +1577,15 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       draft.hideSelectors = t.value.split('\n').map((s) => s.trim()).filter(Boolean);
       draft = customizerEngine.sanitize(draft);
       changed(false);
+    } else if (t.id === 'customjs') {
+      if (t.value === draft.customJs) return;
+      draft.customJs = t.value;
+      draft = customizerEngine.sanitize(draft);
+      changed(false);
+    } else if (t.id === 'brandname') {
+      const n = t.value.trim();
+      if (!n || n === UC.brand.name) return;
+      brandApi('POST', { action: 'rename', name: n }).then((j) => { brandInfo = j; UC.brand = { id: UC.brand.id, name: n }; brandTag(); toast('Brand renamed'); }).catch((e) => toast(e.message));
     } else if (t.id === 'customcss') {
       if (t.value === draft.customCss) {
         return;

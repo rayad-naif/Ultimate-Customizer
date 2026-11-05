@@ -43,7 +43,8 @@
     },
     hideSelectors: [],
     panels: [],          // point-and-click styles: [{ sel, name, bg, text, ... }] (see PANEL_FIELDS)
-    customCss: ''
+    customCss: '',
+    customJs: ''         // the brand's own script, served as /c/<key>/custom.js
   };
 
   /* Panels: any element on the CRM page (picked in the editor, or a detected
@@ -167,6 +168,7 @@
     }
     if (Array.isArray(src.panels)) out.panels = src.panels.map(cleanPanel).filter(Boolean).slice(0, MAX_PANELS);
     if (typeof src.customCss === 'string') out.customCss = src.customCss.replace(/</g, '').slice(0, 30000);
+    if (typeof src.customJs === 'string') out.customJs = src.customJs.replace(/\u0000/g, '').slice(0, 30000);
 
     const sb = isObj(src.sidebar) ? src.sidebar : {};
     ['agency', 'location'].forEach((view) => {

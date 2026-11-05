@@ -34,33 +34,41 @@ function createBundler(cfg) {
   const banner = (inst) => '/*! Ultimate Customizer | licensed to ' +
     String(inst.name || inst.companyId).replace(/\*\//g, '') + ' (' + inst.companyId + ') */\n';
 
-  function css(inst) {
-    return cached('css:' + inst.key + ':' + inst.configVersion, () => {
+  // `brand` is the brand view the requesting domain uses (licensing.brandFor).
+  function css(inst, brand) {
+    return cached('css:' + inst.key + ':' + brand.id + ':' + brand.configVersion, () => {
       // @import (Google fonts) must stay the very first rule, so the banner goes after it.
-      const compiled = engine.compile(template, inst.config);
+      const compiled = engine.compile(template, brand.config);
       const m = compiled.match(/^@import[^\n]*\n/);
       return m ? m[0] + banner(inst) + compiled.slice(m[0].length) : banner(inst) + compiled;
     });
   }
 
-  function js(inst, mode) {
-    return cached('js:' + inst.key + ':' + inst.configVersion + ':' + mode, () => {
+  function js(inst, mode, brand) {
+    return cached('js:' + inst.key + ':' + brand.id + ':' + brand.configVersion + ':' + mode + ':' + brand.name, () => {
       const boot = {
         mode,
         license: { key: inst.key, companyId: inst.companyId, base: cfg.baseUrl, name: inst.name || '' },
-        version: inst.configVersion,
-        config: mode === 'setup' ? engine.sanitize({}) : inst.config
+        brand: { id: brand.id, name: brand.name },
+        version: brand.configVersion,
+        config: mode === 'setup' ? engine.sanitize({}) : brand.config
       };
       return banner(inst) + '(function () {\n\'use strict\';\nif (window.__UC_LOADED) return;\nwindow.__UC_LOADED = true;\n' +
         'var UC_BOOT = ' + safeJson(boot) + ';\n' + shared + '\n' + (mode === 'setup' ? setupOnly : full) + '\n})();\n';
     });
   }
 
+  // The brand's own JavaScript, as written in the editor (Advanced -> Custom JS).
+  function customJs(inst, brand) {
+    const code = brand.config.customJs || '';
+    return banner(inst) + '/* brand: ' + String(brand.name).replace(/\*\//g, '') + ' */\n' + (code ? code + '\n' : '');
+  }
+
   const inactiveCss = '/* Ultimate Customizer: no active license for this domain. */\n';
   const inactiveJs = '/* Ultimate Customizer: no active license for this agency. */\n' +
     'try{console.warn("[Ultimate Customizer] License inactive - effects disabled.")}catch(e){}\n';
 
-  return { template, css, js, inactiveCss, inactiveJs };
+  return { template, css, js, customJs, inactiveCss, inactiveJs };
 }
 
 module.exports = { createBundler, safeJson };

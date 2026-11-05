@@ -141,7 +141,8 @@ function createApp(cfg, deps) {
     if (inst && mode !== 'off' && host && host !== ownHost) {
       try { await lic.noteRequest(inst, host, mode === 'full' || mode === 'verify'); } catch (e) { /* bookkeeping only */ }
     }
-    return { inst, host, mode };
+    // Each connected domain shows its own brand (up to 5 per agency).
+    return { inst, host, mode, brand: inst ? lic.brandFor(inst, host) : null };
   }
   function assetHeaders(res, type) {
     cors(res).set({
@@ -155,15 +156,22 @@ function createApp(cfg, deps) {
   app.options(['/c/:key/:file', '/api/*'], (req, res) => cors(res).sendStatus(204));
 
   app.get('/c/:key/theme.css', ah(async (req, res) => {
-    const { inst, mode } = await assetCtx(req);
+    const { inst, mode, brand } = await assetCtx(req);
     assetHeaders(res, 'text/css; charset=utf-8');
     const ok = mode === 'full' || (mode === 'verify' && req.get('X-UC-Verified') === '1');
-    res.send(ok ? bundler.css(inst) : bundler.inactiveCss);
+    res.send(ok ? bundler.css(inst, brand) : bundler.inactiveCss);
   }));
   app.get('/c/:key/customizer.js', ah(async (req, res) => {
-    const { inst, mode } = await assetCtx(req);
+    const { inst, mode, brand } = await assetCtx(req);
     assetHeaders(res, 'application/javascript; charset=utf-8');
-    res.send(mode === 'off' ? bundler.inactiveJs : bundler.js(inst, mode));
+    res.send(mode === 'off' ? bundler.inactiveJs : bundler.js(inst, mode, brand));
+  }));
+  // The brand's custom JS. The runtime adds it once the theme is live on the page.
+  app.get('/c/:key/custom.js', ah(async (req, res) => {
+    const { inst, mode, brand } = await assetCtx(req);
+    assetHeaders(res, 'application/javascript; charset=utf-8');
+    if (mode !== 'full' && mode !== 'verify') return res.status(403).send('/* not available */\n');
+    res.send(bundler.customJs(inst, brand));
   }));
   app.get('/c/:key/template.css', ah(async (req, res) => {
     const { mode } = await assetCtx(req);
@@ -174,11 +182,14 @@ function createApp(cfg, deps) {
   }));
   // Realtime: open CRM tabs poll this to pick up saved changes.
   app.get('/c/:key/v.json', ah(async (req, res) => {
-    const { inst, mode } = await assetCtx(req);
+    const { mode, brand } = await assetCtx(req);
     cors(res).set('Cache-Control', 'no-store');
     if (mode !== 'full' && mode !== 'verify') return res.status(403).json({ error: 'not available' });
     const have = Number(req.query.have);
-    res.json(have >= inst.configVersion ? { v: inst.configVersion } : { v: inst.configVersion, config: inst.config });
+    // A domain moved to another brand gets that brand's settings whatever its version.
+    const same = !req.query.b || req.query.b === brand.id;
+    const head = { v: brand.configVersion, brand: { id: brand.id, name: brand.name } };
+    res.json(same && have >= brand.configVersion ? head : Object.assign(head, { config: brand.config }));
   }));
 
   /* ---------------- browser API (called from the CRM) ---------------- */
@@ -204,8 +215,52 @@ function createApp(cfg, deps) {
     if (!inst || !lic.checkEditorToken(inst, auth, originHost(req))) return res.status(401).json({ error: 'This browser is not connected' });
     if (!lic.isLicensed(inst)) return res.status(403).json({ error: 'License is not active' });
     if (!body.config || typeof body.config !== 'object') return res.status(400).json({ error: 'Missing config' });
-    await lic.saveConfig(inst, body.config, null);
-    res.json({ ok: true, version: inst.configVersion });
+    // Saved into the brand this domain uses. If the editor still shows another
+    // brand (the domain was moved meanwhile), refuse instead of overwriting it.
+    const brand = lic.brandFor(inst, originHost(req));
+    if (body.brand && body.brand !== brand.id) return res.status(409).json({ error: 'This domain now uses the brand "' + brand.name + '". Reopen the customizer.', brand: { id: brand.id, name: brand.name } });
+    await lic.saveConfig(inst, body.config, null, brand.id);
+    res.json({ ok: true, version: lic.brandFor(inst, originHost(req)).configVersion, brand: { id: brand.id, name: brand.name } });
+  }));
+
+  /* Brands from the CRM editor: list them, switch this domain to one, or create one.
+     Same editor token as saving; it only ever changes the calling domain. */
+  async function editorCtx(req, res) {
+    cors(res).set('Cache-Control', 'no-store');
+    if (!limitApi('brand:' + clientIp(req))) { res.status(429).json({ error: 'Too many requests' }); return null; }
+    const key = (req.body && req.body.key) || req.query.key;
+    const inst = typeof key === 'string' ? await lic.byKey(key) : null;
+    const host = originHost(req);
+    const auth = (req.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+    if (!inst || !lic.checkEditorToken(inst, auth, host)) { res.status(401).json({ error: 'This browser is not connected' }); return null; }
+    if (!lic.isLicensed(inst)) { res.status(403).json({ error: 'License is not active' }); return null; }
+    return { inst, host };
+  }
+  const brandList = (inst, host) => ({
+    current: lic.brandFor(inst, host).id, max: lic.MAX_BRANDS,
+    brands: lic.brandsOf(inst).map((b) => ({ id: b.id, name: b.name, domains: inst.boundHosts.filter((h) => lic.brandFor(inst, h).id === b.id) }))
+  });
+  app.get('/api/brands', ah(async (req, res) => {
+    const c = await editorCtx(req, res);
+    if (c) res.json(brandList(c.inst, c.host));
+  }));
+  app.post('/api/brands', ah(async (req, res) => {
+    const c = await editorCtx(req, res);
+    if (!c) return;
+    const b = req.body || {};
+    try {
+      if (b.action === 'create') {
+        const nb = await lic.createBrand(c.inst, b.name, b.copyFrom ? lic.brandFor(c.inst, c.host).id : null, 'editor on ' + c.host);
+        await lic.assignHost(c.inst, c.host, nb.id, 'editor');
+      } else if (b.action === 'use') {
+        await lic.assignHost(c.inst, c.host, String(b.brand || ''), 'editor');
+      } else if (b.action === 'rename') {
+        await lic.renameBrand(c.inst, lic.brandFor(c.inst, c.host).id, b.name);
+      } else {
+        return res.status(400).json({ error: 'Unknown action' });
+      }
+    } catch (e) { return res.status(400).json({ error: e.message }); }
+    res.json(brandList(c.inst, c.host));
   }));
 
   /* ---------------- public pages ---------------- */
@@ -335,10 +390,15 @@ function createApp(cfg, deps) {
 });
 const customer = customerAuth(false);
 const customerOrSetup = customerAuth(true);
+  // Brands with their domains, for the app and Super Admin pages.
+  const brandSummary = (inst) => lic.brandsOf(inst).map((b) => ({
+    id: b.id, name: b.name, main: b.main, version: b.configVersion, theme: b.config.theme,
+    hasJs: !!b.config.customJs, domains: inst.boundHosts.filter((h) => lic.brandFor(inst, h).id === b.id)
+  }));
   const appHome = (res) => '/app' + (res.locals.embed ? '?t=' + encodeURIComponent(res.locals.embed) : '');
 
   app.get('/app', customer, (req, res) => {
-    html(res, views.appPage({ inst: req.inst, status: lic.statusOf(req.inst), baseUrl: cfg.baseUrl, csrf: req.s.csrf, flash: takeFlash(req, res), embedToken: res.locals.embed || '' }));
+    html(res, views.appPage({ inst: req.inst, status: lic.statusOf(req.inst), baseUrl: cfg.baseUrl, csrf: req.s.csrf, flash: takeFlash(req, res), embedToken: res.locals.embed || '', brands: brandSummary(req.inst), maxBrands: lic.MAX_BRANDS }));
   });
   app.post('/app/domains/add', customer, ah(async (req, res) => {
     const host = lic.cleanHost(req.body.host);
@@ -354,6 +414,25 @@ const customerOrSetup = customerAuth(true);
     flash(res, { type: 'ok', msg: 'Domain removed.' });
     res.redirect(appHome(res));
   }));
+  // Brands (one per white-label domain, up to 5).
+  const brandAction = (path, fn) => app.post('/app/brands/' + path, customer, ah(async (req, res) => {
+    try { flash(res, { type: 'ok', msg: await fn(req.inst, req.body || {}) }); } catch (e) { flash(res, { type: 'err', msg: e.message }); }
+    res.redirect(appHome(res) + '#brands');
+  }));
+  brandAction('create', async (inst, b) => {
+    const nb = await lic.createBrand(inst, b.name, b.copyFrom || null, 'agency');
+    return nb.name + ' created. Assign a domain to it below, then open the customizer on that domain to design it.';
+  });
+  brandAction('rename', async (inst, b) => { await lic.renameBrand(inst, String(b.brand || ''), b.name); return 'Brand renamed.'; });
+  brandAction('delete', async (inst, b) => {
+    const old = lic.brand(inst, String(b.brand || ''));
+    await lic.deleteBrand(inst, String(b.brand || ''), 'agency');
+    return (old ? old.name : 'Brand') + ' deleted. Its domains now use the main brand.';
+  });
+  brandAction('assign', async (inst, b) => {
+    const nb = await lic.assignHost(inst, b.host, String(b.brand || ''), 'agency');
+    return lic.cleanHost(b.host) + ' now shows ' + nb.name + '. Open CRM tabs pick it up within a minute.';
+  });
   app.post('/app/revoke-editors', customer, ah(async (req, res) => {
     await lic.revokeEditors(req.inst, 'agency');
     flash(res, { type: 'ok', msg: 'All editors signed out. Browsers must reconnect to edit.' });
@@ -482,7 +561,7 @@ app.post('/app/setup', customerOrSetup, ah(async (req, res) => {
   }));
 
   app.get('/admin/i/:companyId', admin, adminInst, ah(async (req, res) => {
-    html(res, views.adminDetail({ inst: req.inst, status: lic.statusOf(req.inst), events: await store.events(req.inst.companyId, 100), baseUrl: cfg.baseUrl, csrf: req.s.csrf, flash: takeFlash(req, res) }));
+    html(res, views.adminDetail({ brands: brandSummary(req.inst), inst: req.inst, status: lic.statusOf(req.inst), events: await store.events(req.inst.companyId, 100), baseUrl: cfg.baseUrl, csrf: req.s.csrf, flash: takeFlash(req, res) }));
   }));
   const adminAction = (path, fn) => app.post('/admin/i/:companyId/' + path, admin, adminInst, ah(fn));
   adminAction('suspend', async (req, res) => {
@@ -507,7 +586,8 @@ app.post('/app/setup', customerOrSetup, ah(async (req, res) => {
   });
   adminAction('config', async (req, res) => {
     if (!req.body || typeof req.body.config !== 'object') return res.status(400).json({ error: 'Missing config' });
-    res.json({ ok: true, config: await lic.saveConfig(req.inst, req.body.config, 'super admin') });
+    try { res.json({ ok: true, config: await lic.saveConfig(req.inst, req.body.config, 'super admin', typeof req.body.brand === 'string' ? req.body.brand : null) }); }
+    catch (e) { res.status(400).json({ error: e.message }); }
   });
   adminAction('meta', async (req, res) => {
     req.inst.name = String(req.body.name || '').trim().slice(0, 120);

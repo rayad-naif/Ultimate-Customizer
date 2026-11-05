@@ -24,6 +24,10 @@ const PAIR_RE = /^[A-Za-z0-9_-]{20,64}$/;
 // so there the theme only loads after the runtime company check passes.
 const SHARED_HOSTS = ['app.gohighlevel.com', 'app.leadconnectorhq.com', 'app.msgsndr.com'];
 const MAX_SEEN = 25;
+// An agency can run up to 5 brands (one per white-label domain), each with its own settings.
+const MAX_BRANDS = 5;
+const MAIN = 'main';
+const BRAND_ID_RE = /^b[2-9]$/;
 const EDITOR_TTL = 30 * 24 * 3600e3;
 const PAIR_TTL = 10 * 60e3;
 const { randomToken, hashPassword, verifyPassword } = require('./security');
@@ -44,8 +48,11 @@ function createLicensing(store, ghl, sec, opts) {
       suspended: false,            // switched off in the Super Admin panel
       pending: false,              // waiting for approval (NEW_INSTALL_STATUS=pending)
       source: 'oauth',
-      config: engine.sanitize({}),
+      config: engine.sanitize({}),   // settings of the main brand
       configVersion: 1,
+      brandName: '',               // main brand's name ('' = "Main brand")
+      brands: [],                  // extra brands: [{ id, name, config, configVersion }]
+      hostBrands: {},              // connected domain -> brand id (missing = main brand)
       boundHosts: [],              // domains approved by the agency
       seenHosts: {},               // bound domains -> last seen
       blockedHosts: {},            // unknown domains -> { n, last }
@@ -71,6 +78,10 @@ function createLicensing(store, ghl, sec, opts) {
     inst.seenHosts = inst.seenHosts || {};
     inst.blockedHosts = inst.blockedHosts || {};
     inst.editorEpoch = inst.editorEpoch || 1;
+    inst.brandName = typeof inst.brandName === 'string' ? inst.brandName : '';
+    inst.brands = Array.isArray(inst.brands) ? inst.brands.filter((b) => b && BRAND_ID_RE.test(b.id)).slice(0, MAX_BRANDS - 1) : [];
+    inst.brands.forEach((b) => { b.config = engine.sanitize(b.config); b.configVersion = b.configVersion || 1; b.name = String(b.name || '').slice(0, 60); });
+    inst.hostBrands = inst.hostBrands && typeof inst.hostBrands === 'object' ? inst.hostBrands : {};
     if (!inst.config || inst.config.v !== 2) inst.config = engine.sanitize(inst.config && inst.config.v === 2 ? inst.config : {});
     delete inst.allowedHosts; delete inst.publishKeyHash;
     return inst;
@@ -176,12 +187,72 @@ function createLicensing(store, ghl, sec, opts) {
     return inst.key;
   }
 
-  async function saveConfig(inst, cfg, who) {
-    inst.config = engine.sanitize(cfg);
-    inst.configVersion = (inst.configVersion || 1) + 1;
+  /* ---------------- brands ----------------
+     The main brand keeps living in inst.config / inst.configVersion (older
+     records and the Super Admin JSON editor use those); extra brands sit in
+     inst.brands. A brand view is { id, name, config, configVersion, main }. */
+  const mainView = (inst) => ({ id: MAIN, name: inst.brandName || 'Main brand', config: inst.config, configVersion: inst.configVersion || 1, main: true });
+  const extraView = (b) => ({ id: b.id, name: b.name || 'Brand ' + b.id.slice(1), config: b.config, configVersion: b.configVersion || 1, main: false });
+  function brandsOf(inst) { return [mainView(inst)].concat(inst.brands.map(extraView)); }
+  function brand(inst, id) { return brandsOf(inst).find((b) => b.id === id) || null; }
+  // The brand a domain shows. Unassigned (or a deleted brand) = main brand.
+  function brandFor(inst, host) {
+    const id = host && inst.hostBrands[host];
+    return (id && brand(inst, id)) || mainView(inst);
+  }
+  const cleanName = (n) => String(n || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 60);
+
+  async function saveConfig(inst, cfg, who, brandId) {
+    const clean = engine.sanitize(cfg);
+    const b = brandId && brandId !== MAIN ? inst.brands.find((x) => x.id === brandId) : null;
+    if (brandId && brandId !== MAIN && !b) throw new Error('That brand no longer exists');
+    if (b) { b.config = clean; b.configVersion = (b.configVersion || 1) + 1; }
+    else { inst.config = clean; inst.configVersion = (inst.configVersion || 1) + 1; }
     await store.put(inst);
-    if (who) await store.log(inst.companyId, 'config_saved', who);
-    return inst.config;
+    if (who) await store.log(inst.companyId, 'config_saved', who + (b ? ' (' + (b.name || b.id) + ')' : ''));
+    return clean;
+  }
+
+  // New brand: blank, or a copy of another brand's settings.
+  async function createBrand(inst, name, copyFrom, who) {
+    if (inst.brands.length >= MAX_BRANDS - 1) throw new Error('You can have up to ' + MAX_BRANDS + ' brands.');
+    let id = '';
+    for (let n = 2; n <= 9 && !id; n++) if (!inst.brands.some((b) => b.id === 'b' + n)) id = 'b' + n;
+    const src = copyFrom ? brand(inst, copyFrom) : null;
+    const b = { id, name: cleanName(name) || 'Brand ' + (inst.brands.length + 2), config: engine.sanitize(src ? engine.clone(src.config) : {}), configVersion: 1 };
+    inst.brands.push(b);
+    await store.put(inst);
+    await store.log(inst.companyId, 'brand_created', b.name + (src ? ' (copy of ' + src.name + ')' : '') + (who ? ' by ' + who : ''));
+    return extraView(b);
+  }
+  async function renameBrand(inst, id, name) {
+    const n = cleanName(name);
+    if (!n) throw new Error('Give the brand a name.');
+    if (id === MAIN) inst.brandName = n;
+    else {
+      const b = inst.brands.find((x) => x.id === id);
+      if (!b) throw new Error('That brand no longer exists');
+      b.name = n;
+    }
+    await store.put(inst);
+  }
+  // Its domains go back to the main brand.
+  async function deleteBrand(inst, id, who) {
+    const i = inst.brands.findIndex((x) => x.id === id);
+    if (i === -1) throw new Error(id === MAIN ? 'The main brand cannot be deleted.' : 'That brand no longer exists');
+    const [b] = inst.brands.splice(i, 1);
+    Object.keys(inst.hostBrands).forEach((h) => { if (inst.hostBrands[h] === id) delete inst.hostBrands[h]; });
+    await store.put(inst);
+    await store.log(inst.companyId, 'brand_deleted', (b.name || b.id) + (who ? ' by ' + who : ''));
+  }
+  async function assignHost(inst, host, id, who) {
+    host = cleanHost(host);
+    if (!isBound(inst, host)) throw new Error('Connect ' + host + ' first.');
+    if (!brand(inst, id)) throw new Error('That brand no longer exists');
+    if (id === MAIN) delete inst.hostBrands[host]; else inst.hostBrands[host] = id;
+    await store.put(inst);
+    await store.log(inst.companyId, 'domain_brand', host + ' \u2192 ' + brand(inst, id).name + (who ? ' by ' + who : ''));
+    return brand(inst, id);
   }
 
   /* ---------------- domains ---------------- */
@@ -207,6 +278,7 @@ function createLicensing(store, ghl, sec, opts) {
     const i = inst.boundHosts.indexOf(host);
     if (i === -1) return;
     inst.boundHosts.splice(i, 1);
+    delete inst.hostBrands[host];
     await store.put(inst);
     await store.log(inst.companyId, 'domain_removed', host + (who ? ' by ' + who : ''));
   }
@@ -309,6 +381,7 @@ async function checkLogin(email, password) {
   return {
     setLogin, checkLogin, cleanEmail,
     COMPANY_RE, SHARED_HOSTS, get, byKey, list, isLicensed, statusOf, installFromOAuth, addManual, verify, markUninstalled,
+    MAX_BRANDS, MAIN, brandsOf, brand, brandFor, createBrand, renameBrand, deleteBrand, assignHost,
     rotateAssetKey, saveConfig, cleanHost, validHost, isShared, bindHost, unbindHost, noteRequest, modeFor,
     validPair, approvePairing, claimPairing, checkEditorToken, revokeEditors
   };

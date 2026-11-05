@@ -24,6 +24,7 @@ var UC = (function () {
     mode: B.mode,
     license: L,
     version: B.version,
+    brand: B.brand || { id: 'main', name: 'Main brand' }, // brand this domain uses (one agency: up to 5)
     baked: E.sanitize(B.config),   // config currently saved on the server
     active: null,                  // config on screen (draft while editing)
     r: null,                       // resolved values of `active`
@@ -296,20 +297,24 @@ var UC = (function () {
       method: 'PUT',
       credentials: 'omit',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + UC.editorToken() },
-      body: JSON.stringify({ key: L.key, config: clean })
+      body: JSON.stringify({ key: L.key, config: clean, brand: UC.brand.id })
     }).then((r) => r.json().catch(() => ({})).then((j) => {
       if (!r.ok) { const err = new Error(j.error || ('Save failed (' + r.status + ')')); err.status = r.status; throw err; }
       UC.version = j.version; UC.baked = clean;
+      if (j.brand) UC.brand = j.brand;
       return j.version;
     }));
   };
 
   function poll() {
     if (UC.killed || !UC.live || UC.editing || document.hidden) return;
-    fetch(UC.api('/c/' + L.key + '/v.json?have=' + UC.version), { credentials: 'omit' })
+    fetch(UC.api('/c/' + L.key + '/v.json?have=' + UC.version + '&b=' + encodeURIComponent(UC.brand.id)), { credentials: 'omit' })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        if (!j || !(j.v > UC.version) || !j.config || UC.editing) return;
+        if (!j || !j.config || UC.editing) return;
+        const moved = j.brand && j.brand.id !== UC.brand.id;
+        if (!moved && !(j.v > UC.version)) return;
+        if (j.brand) UC.brand = j.brand;
         UC.version = j.v;
         UC.baked = E.sanitize(j.config);
         UC.render(UC.baked).catch(() => {});
@@ -318,6 +323,20 @@ var UC = (function () {
   }
   setInterval(poll, 60000);
   document.addEventListener('visibilitychange', poll);
+
+  /* ---------------- brand custom JS ----------------
+     Served as its own file, so a mistake in it can never break this script.
+     Loaded once per page, after the theme is live; edits apply on reload. */
+  const CUSTOM_JS_ID = 'uc-custom-js';
+  function loadCustomJs() {
+    if (UC.killed || !UC.baked.customJs || document.getElementById(CUSTOM_JS_ID)) return;
+    const s = document.createElement('script');
+    s.id = CUSTOM_JS_ID;
+    s.src = UC.api('/c/' + L.key + '/custom.js?v=' + encodeURIComponent(UC.brand.id + '.' + UC.version));
+    s.async = true;
+    (document.head || document.documentElement).appendChild(s);
+  }
+  if (UC.mode !== 'setup') UC.onLive(loadCustomJs);
 
   /* ---------------- kill switch ---------------- */
   UC.kill = function (reason) {
