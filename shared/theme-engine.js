@@ -68,8 +68,21 @@
     glow: { type: 'color', def: '' },
     glowSize: { type: 'num', min: 0, max: 60, step: 1, def: 18 },
     blur: { type: 'num', min: 0, max: 40, step: 1, def: 0 },
-    hoverBg: { type: 'color', def: '' }
+    hoverBg: { type: 'color', def: '' },
+    // Spacing in px. Empty = keep the CRM's own value. pad/mar set all four sides;
+    // a side (pt, pr, ...) overrides it.
+    pad: { type: 'space', min: 0, max: 120, def: null },
+    pt: { type: 'space', min: 0, max: 120, def: null },
+    pr: { type: 'space', min: 0, max: 120, def: null },
+    pb: { type: 'space', min: 0, max: 120, def: null },
+    pl: { type: 'space', min: 0, max: 120, def: null },
+    mar: { type: 'space', min: -60, max: 120, def: null },
+    mt: { type: 'space', min: -60, max: 120, def: null },
+    mr: { type: 'space', min: -60, max: 120, def: null },
+    mb: { type: 'space', min: -60, max: 120, def: null },
+    ml: { type: 'space', min: -60, max: 120, def: null }
   };
+  const SIDES = { top: ['pt', 'mt'], right: ['pr', 'mr'], bottom: ['pb', 'mb'], left: ['pl', 'ml'] };
   const PANEL_SHADOWS = { soft: '0 4px 14px rgba(0, 0, 0, 0.25)', medium: '0 12px 32px rgba(0, 0, 0, 0.4)', strong: '0 24px 60px rgba(0, 0, 0, 0.6)' };
   const MAX_PANELS = 40;
 
@@ -136,6 +149,10 @@
       if (f.type === 'color') v = p[k] === '' ? '' : (isHex(p[k]) ? p[k].toLowerCase() : undefined);
       else if (f.type === 'select') v = f.options.indexOf(p[k]) !== -1 ? p[k] : undefined;
       else if (f.type === 'font') v = typeof p[k] === 'string' && (p[k] === '' || FONT_RE.test(p[k].trim())) ? p[k].trim() : undefined;
+      else if (f.type === 'space') {
+        const n = p[k] === '' || p[k] === null ? NaN : Number(p[k]);
+        v = isFinite(n) ? Math.max(f.min, Math.min(f.max, Math.round(n))) : undefined;
+      }
       else v = cleanValue(f, p[k]);
       if (v !== undefined && v !== f.def) out[k] = v;
     });
@@ -435,6 +452,13 @@
       if (v('glow') && v('glowSize') > 0) sh.push('0 0 ' + fmtNum(v('glowSize')) + 'px ' + rgba(v('glow'), 0.55));
       if (sh.length) d.push('box-shadow:' + sh.join(',') + '!important');
       if (v('blur') > 0) d.push('backdrop-filter:blur(' + fmtNum(v('blur')) + 'px)!important;-webkit-backdrop-filter:blur(' + fmtNum(v('blur')) + 'px)!important');
+      const px = (k) => (typeof p[k] === 'number' ? fmtNum(p[k]) + 'px' : null);
+      if (px('pad')) d.push('padding:' + px('pad') + '!important');
+      if (px('mar')) d.push('margin:' + px('mar') + '!important');
+      Object.keys(SIDES).forEach((side) => {
+        if (px(SIDES[side][0])) d.push('padding-' + side + ':' + px(SIDES[side][0]) + '!important');
+        if (px(SIDES[side][1])) d.push('margin-' + side + ':' + px(SIDES[side][1]) + '!important');
+      });
       if (d.length) css += S + '{' + d.join(';') + '}\n';
       if (v('text') && v('inner')) {
         css += S + ' :where(*):not(input,textarea,select,option,[class*="badge"]){color:' + v('text') + '!important}\n';

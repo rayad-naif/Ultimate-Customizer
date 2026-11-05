@@ -155,3 +155,12 @@ test('panels: sanitized, compiled after the theme, and boosted', () => {
   // Too many panels are cut
   assert.strictEqual(E.sanitize({ panels: Array.from({ length: 60 }, (_, i) => ({ sel: '.p' + i })) }).panels.length, E.MAX_PANELS);
 });
+
+test('panels: padding and margin (all sides or one side, empty keeps the original)', () => {
+  const cfg = E.sanitize({ panels: [{ sel: '.hr-wrapper-container', pad: 16, pt: '24', mr: '', ml: -10, mb: 500, mt: 'x' }] });
+  assert.deepStrictEqual(cfg.panels[0], { sel: '.hr-wrapper-container', pad: 16, pt: 24, mb: 120, ml: -10 });
+  const css = compile(cfg);
+  assert.ok(css.includes(':is(.hr-wrapper-container):not(#uc-p1):not(#uc-p2){padding:16px!important;padding-top:24px!important;margin-bottom:120px!important;margin-left:-10px!important}'));
+  // Zero is a real value, not "keep"
+  assert.ok(compile({ panels: [{ sel: '.x', mar: 0 }] }).includes(':is(.x):not(#uc-p1):not(#uc-p2){margin:0px!important}'));
+});

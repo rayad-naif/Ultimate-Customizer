@@ -824,6 +824,7 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
   const PF = customizerEngine.PANEL_FIELDS;
   // Panels HighLevel shows in its classic and new designs (only those on screen are listed first).
   const KNOWN_PANELS = [
+    ['Page wrapper (hr-wrapper-container)', '.hr-wrapper-container'],
     ['Sidebar', '#sidebar-v2'],
     ['Top bar', '.switchyard-topbar'],
     ['Header (classic)', '.hl_header'],
@@ -865,7 +866,11 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       bw: Math.round(parseFloat(cs.borderTopWidth) || 0),
       radius: Math.round(parseFloat(cs.borderTopLeftRadius) || 0),
       blur: blur ? Math.round(parseFloat(blur[1])) : 0,
-      font: (cs.fontFamily || '').split(',')[0].replace(/["']/g, '').trim()
+      font: (cs.fontFamily || '').split(',')[0].replace(/["']/g, '').trim(),
+      pt: Math.round(parseFloat(cs.paddingTop) || 0), pr: Math.round(parseFloat(cs.paddingRight) || 0),
+      pb: Math.round(parseFloat(cs.paddingBottom) || 0), pl: Math.round(parseFloat(cs.paddingLeft) || 0),
+      mt: Math.round(parseFloat(cs.marginTop) || 0), mr: Math.round(parseFloat(cs.marginRight) || 0),
+      mb: Math.round(parseFloat(cs.marginBottom) || 0), ml: Math.round(parseFloat(cs.marginLeft) || 0)
     };
   }
 
@@ -934,6 +939,10 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       input = '<input type="color"' + attrs + ' value="' + escapeHtml(shown) + '"><input type="text" class="hex" data-phex="' + i + ':' + k + '" value="' + escapeHtml(has ? val : '') + '" placeholder="' + escapeHtml((read && read[k]) || 'none') + '" maxlength="7">';
     } else if (f.type === 'num') {
       input = '<input type="range"' + attrs + ' min="' + f.min + '" max="' + f.max + '" step="' + f.step + '" value="' + val + '"><input type="number" class="num"' + attrs + ' min="' + f.min + '" max="' + f.max + '" step="' + f.step + '" value="' + val + '">';
+    } else if (f.type === 'space') {
+      // Empty = keep the CRM's own spacing; the placeholder shows what it is now.
+      const now = read && read[k] !== undefined ? read[k] : (read && k === 'pad' ? read.pt : read && k === 'mar' ? read.mt : '');
+      input = '<input type="number" class="num"' + attrs + ' min="' + f.min + '" max="' + f.max + '" step="1" value="' + (has ? val : '') + '" placeholder="' + escapeHtml(String(now === undefined ? '' : now)) + '"><span class="now">px</span>';
     } else if (f.type === 'bool') {
       input = '<input type="checkbox"' + attrs + (val ? ' checked' : '') + '>';
     } else if (f.type === 'select') {
@@ -948,6 +957,8 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
       ['text', 'Text & icons'], ['inner', 'Also color everything inside'], ['hoverBg', 'Hover background']]],
     ['Border & shape', [['border', 'Border color'], ['bw', 'Border width (px)'], ['radius', 'Corner radius (px)', '-1 keeps the original']]],
     ['Effects', [['glow', 'Glow color'], ['glowSize', 'Glow size'], ['shadow', 'Shadow'], ['blur', 'Glass blur (px)', 'Works on see-through backgrounds']]],
+    ['Spacing (px)', [['pad', 'Padding, all sides', 'Space inside. Empty keeps the original'], ['pt', 'Padding top'], ['pr', 'Padding right'], ['pb', 'Padding bottom'], ['pl', 'Padding left'],
+      ['mar', 'Margin, all sides', 'Space outside. Negative pulls it closer'], ['mt', 'Margin top'], ['mr', 'Margin right'], ['mb', 'Margin bottom'], ['ml', 'Margin left']]],
     ['Font', [['font', 'Font family']]]
   ];
   function renderPanelEditor(i) {
@@ -1455,6 +1466,14 @@ textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace;font-siz
     }
     if (t.dataset.f) {
       const i = +t.dataset.p, k = t.dataset.f, f = PF[k];
+      if (f.type === 'space') {
+        if (t.value !== '' && !isFinite(Number(t.value))) return;
+        setPanel(i, k, t.value === '' ? '' : Number(t.value));
+        const ctl = t.closest('.ctl');
+        if (ctl) ctl.classList.toggle('set', t.value !== '');
+        changed(false);
+        return;
+      }
       if (f.type === 'color') {
         setPanel(i, k, t.value);
         const hx = shadow.querySelector('[data-phex="' + i + ':' + k + '"]');
