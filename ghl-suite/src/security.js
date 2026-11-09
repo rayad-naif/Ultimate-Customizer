@@ -1,0 +1,99 @@
+'use strict';
+const crypto = require('crypto');
+
+const b64u = (buf) => Buffer.from(buf).toString('base64url');
+const randomToken = (bytes) => b64u(crypto.randomBytes(bytes || 24));
+const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
+
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  if (x.length !== y.length) { crypto.timingSafeEqual(x, x); return false; }
+  return crypto.timingSafeEqual(x, y);
+}
+
+function createSecurity(secret) {
+  const macKey = crypto.createHash('sha256').update('suite-mac:' + secret).digest();
+  const encKey = crypto.createHash('sha256').update('suite-enc:' + secret).digest();
+  const mac = (s) => crypto.createHmac('sha256', macKey).update(s).digest('base64url');
+
+  // Signed (not encrypted) token: base64url(json).mac
+  function sign(obj) {
+    const body = b64u(JSON.stringify(obj));
+    return body + '.' + mac(body);
+  }
+  function unsign(token) {
+    if (typeof token !== 'string' || token.length > 4096) return null;
+    const i = token.lastIndexOf('.');
+    if (i < 1) return null;
+    const body = token.slice(0, i), sig = token.slice(i + 1);
+    if (!safeEqual(sig, mac(body))) return null;
+    try {
+      const obj = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+      if (obj.exp && Date.now() > obj.exp) return null;
+      return obj;
+    } catch (e) { return null; }
+  }
+
+  // AES-256-GCM for OAuth tokens at rest.
+  function encrypt(plain) {
+    const iv = crypto.randomBytes(12);
+    const c = crypto.createCipheriv('aes-256-gcm', encKey, iv);
+    const enc = Buffer.concat([c.update(String(plain), 'utf8'), c.final()]);
+    return 'v1:' + b64u(iv) + ':' + b64u(c.getAuthTag()) + ':' + b64u(enc);
+  }
+  function decrypt(blob) {
+    if (typeof blob !== 'string' || !blob.startsWith('v1:')) return null;
+    try {
+      const [, iv, tag, data] = blob.split(':');
+      const d = crypto.createDecipheriv('aes-256-gcm', encKey, Buffer.from(iv, 'base64url'));
+      d.setAuthTag(Buffer.from(tag, 'base64url'));
+      return Buffer.concat([d.update(Buffer.from(data, 'base64url')), d.final()]).toString('utf8');
+    } catch (e) { return null; }
+  }
+  return { sign, unsign, encrypt, decrypt };
+}
+
+/* CRM custom-page SSO: CryptoJS.AES.encrypt(JSON, sharedSecret), i.e. OpenSSL
+   "Salted__" format, key+iv from EVP_BytesToKey(MD5), AES-256-CBC. */
+function decryptGhlSso(payload, key) {
+  try {
+    const raw = Buffer.from(String(payload || ''), 'base64');
+    if (raw.length < 32 || raw.subarray(0, 8).toString('latin1') !== 'Salted__' || !key) return null;
+    const salt = raw.subarray(8, 16);
+    let d = Buffer.alloc(0), prev = Buffer.alloc(0);
+    while (d.length < 48) {
+      prev = crypto.createHash('md5').update(Buffer.concat([prev, Buffer.from(key, 'utf8'), salt])).digest();
+      d = Buffer.concat([d, prev]);
+    }
+    const dec = crypto.createDecipheriv('aes-256-cbc', d.subarray(0, 32), d.subarray(32, 48));
+    const obj = JSON.parse(Buffer.concat([dec.update(raw.subarray(16)), dec.final()]).toString('utf8'));
+    return obj && typeof obj === 'object' ? obj : null;
+  } catch (e) { return null; }
+}
+
+// Test helper: produce a payload the way the CRM does.
+function encryptGhlSso(obj, key) {
+  const salt = crypto.randomBytes(8);
+  let d = Buffer.alloc(0), prev = Buffer.alloc(0);
+  while (d.length < 48) {
+    prev = crypto.createHash('md5').update(Buffer.concat([prev, Buffer.from(key, 'utf8'), salt])).digest();
+    d = Buffer.concat([d, prev]);
+  }
+  const c = crypto.createCipheriv('aes-256-cbc', d.subarray(0, 32), d.subarray(32, 48));
+  return Buffer.concat([Buffer.from('Salted__'), salt, c.update(JSON.stringify(obj)), c.final()]).toString('base64');
+}
+
+// Fixed-window rate limiter (per warm instance; good enough against bursts).
+function rateLimiter(limit, windowMs) {
+  const hits = new Map();
+  return function (key) {
+    const now = Date.now();
+    if (hits.size > 5000) for (const [k, v] of hits) if (v.reset < now) hits.delete(k);
+    let h = hits.get(key);
+    if (!h || h.reset < now) { h = { n: 0, reset: now + windowMs }; hits.set(key, h); }
+    h.n += 1;
+    return h.n <= limit;
+  };
+}
+
+module.exports = { createSecurity, decryptGhlSso, encryptGhlSso, randomToken, sha256, safeEqual, rateLimiter };
